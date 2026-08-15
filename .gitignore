@@ -1,23 +1,41 @@
-### AL ###
-#Template for AL projects for Dynamics 365 Business Central
-#launch.json folder
-.vscode/
-#Cache folder
-.alcache/
-#Symbols folder
-.alpackages/
-#Snapshots folder
-.snapshots/
-#Testing Output folder
-.output/
-#Extension App-file
-*.app
-#Rapid Application Development File
-rad.json
-#Translation Base-file
-*.g.xlf
-#License-files
-*.bclicense
-*.flf
-#Test results file
-TestResults.xml
+# ── Rust ─────────────────────────────────
+/target
+**/*.rs.bk
+*.pdb
+
+# ── Bun / Node ───────────────────────────
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+.eslintcache
+
+# Bun's lockfile IS committed (bun.lock is text and reviewable).
+# Reject the legacy binary lockfile instead.
+bun.lockb
+
+# ── WASM build output ────────────────────
+/crates/od-wasm/pkg/
+
+# ── Test / coverage ──────────────────────
+coverage/
+*.profraw
+/tests/corpus/private/
+
+# ── Editor / OS ──────────────────────────
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# ── Local env ────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Claude Code ──────────────────────────
+# Project-level config IS committed (.claude/agents, skills, commands,
+# settings.json). Only per-developer overrides are ignored.
+.claude/settings.local.json
