@@ -1,0 +1,21 @@
+[package]
+name = "od-geom3d"
+description = "3D points, frames and bounds for OpenDraft. The solid kernel lives behind a trait defined here; no B-rep implementation is bundled."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+od-geom2d = { workspace = true }
+serde = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[features]
+default = ["serde"]
+serde = ["dep:serde", "od-geom2d/serde"]
+
+[lints]
+workspace = true
