@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      # Warnings are failures. The lint set in Cargo.toml bans unwrap, expect,
+      # panic and lossy numeric casts in production code, and those are exactly
+      # the mistakes that turn into a lost afternoon of someone's drawing.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      # Called out separately so a failure names the promise it broke rather
+      # than appearing as one test among a hundred.
+      - name: Round-trip gate
+        run: cargo test -p od-io-dxf --test roundtrip
+
+      - name: Catalogue gate
+        run: cargo test -p od-parts
+
+  layering:
+    name: Architectural boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # od-core must not know about any engineering domain (docs/02). This is
+      # the boundary that decides whether a second domain can ever be added, so
+      # it is checked mechanically rather than remembered.
+      #
+      # Identifiers only. A doc comment explaining *why* the core has no domain
+      # is not a violation, and neither is a test fixture named "A-Duct-Supply"
+      # — layer names are user data. What must never appear is a type, function
+      # or module in the core that exists to serve one discipline.
+      - name: Core names no domain
+        run: |
+          pattern='^[[:space:]]*(pub[[:space:]]+)?(struct|enum|fn|mod|trait|type|const|impl)[[:space:]]+[A-Za-z_]*([Dd]uct|[Pp]ipe|[Mm]ep|MEP|[Hh]vac|HVAC|[Pp]lumbing|[Ss]anitary|[Ff]itting|[Rr]oute[Ss]egment)'
+          if grep -rnE "$pattern" crates/od-core/src/; then
+            echo "::error::od-core must not define a domain-specific item — see CLAUDE.md rule 1"
+            exit 1
+          fi
+          echo "od-core defines no domain-specific items"
+
+      - name: Core does not depend upwards
+        run: |
+          if grep -qE '^od-(io|parts|cli|render|app)' crates/od-core/Cargo.toml; then
+            echo "::error::od-core must not depend on layers above it"
+            exit 1
+          fi
+          echo "dependency direction is intact"
+
+  typescript:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Format
+        run: bun run format:check
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      # The API is transport over the CLI, so its tests need the real binary.
+      # Testing against a mock would prove only that the mock matches itself.
+      - name: Build the engine
+        run: cargo build -p od-cli
+
+      - name: Test
+        run: bun test apps/api
+        env:
+          OD_BIN: ${{ github.workspace }}/target/debug/od
+
+      - name: Build the front end
+        run: bun run --filter '@opendraft/front' build
+
+  licence:
+    name: Licence boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans
