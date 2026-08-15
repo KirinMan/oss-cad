@@ -1,0 +1,33 @@
+{
+  "$comment": "Rigid PVC pipe (JIS K 6741, 硬質ポリ塩化ビニル管). VP is the standard wall; the same size table serves VU with thinner walls, which a separate spec can override.",
+  "specs": [
+    {
+      "id": "spec.pipe.vp",
+      "name": { "ja": "硬質ポリ塩化ビニル管 VP", "en": "Rigid PVC pipe (VP)" },
+      "system_kind": "drainage",
+      "material": { "ja": "硬質塩化ビニル", "en": "Rigid PVC" },
+      "standard": "JIS K 6741",
+      "elbow_part": "pipe.elbow.90",
+      "branch_part": "pipe.tee",
+      "reducer_part": "pipe.reducer",
+      "min_bend_radius_ratio": 2.0,
+      "stock_length": 4000,
+      "joint": { "ja": "接着（TS）", "en": "Solvent cement (TS)" },
+      "sizes": [
+        { "designation": "VP13", "nominal": 13, "outside": 18.0, "thickness": 2.2, "mass_per_m": 0.16 },
+        { "designation": "VP16", "nominal": 16, "outside": 22.0, "thickness": 2.7, "mass_per_m": 0.24 },
+        { "designation": "VP20", "nominal": 20, "outside": 26.0, "thickness": 2.7, "mass_per_m": 0.29 },
+        { "designation": "VP25", "nominal": 25, "outside": 32.0, "thickness": 3.1, "mass_per_m": 0.41 },
+        { "designation": "VP30", "nominal": 30, "outside": 38.0, "thickness": 3.1, "mass_per_m": 0.5 },
+        { "designation": "VP40", "nominal": 40, "outside": 48.0, "thickness": 3.6, "mass_per_m": 0.74 },
+        { "designation": "VP50", "nominal": 50, "outside": 60.0, "thickness": 4.1, "mass_per_m": 1.06 },
+        { "designation": "VP65", "nominal": 65, "outside": 76.0, "thickness": 4.1, "mass_per_m": 1.37 },
+        { "designation": "VP75", "nominal": 75, "outside": 89.0, "thickness": 5.5, "mass_per_m": 2.14 },
+        { "designation": "VP100", "nominal": 100, "outside": 114.0, "thickness": 6.6, "mass_per_m": 3.3 },
+        { "designation": "VP125", "nominal": 125, "outside": 140.0, "thickness": 7.0, "mass_per_m": 4.32 },
+        { "designation": "VP150", "nominal": 150, "outside": 165.0, "thickness": 8.9, "mass_per_m": 6.45 },
+        { "designation": "VP200", "nominal": 200, "outside": 216.0, "thickness": 10.3, "mass_per_m": 9.83 }
+      ]
+    }
+  ]
+}

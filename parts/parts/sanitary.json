@@ -1,0 +1,269 @@
+{
+  "$comment": "Sanitary fixtures. Origin is the fixture's setting-out point on the wall or floor as a plumber would dimension it; ports face the way the connection leaves the fixture. Sizes are typical Japanese fixture dimensions rather than one maker's model.",
+  "parts": [
+    {
+      "id": "sanitary.wc.floor",
+      "name": { "ja": "大便器（床置）", "en": "Water closet (floor)" },
+      "category": "sanitary",
+      "tags": ["wc", "大便器", "便器", "衛生器具", "トイレ"],
+      "ifc_class": "IfcSanitaryTerminal",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 400, "min": 300, "max": 600, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Projection" }, "default": 750, "min": 500, "max": 900, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 400, "min": 300, "max": 600, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "drain", "origin": [0, "L * 0.4", 0], "direction": [0, 0, -1], "profile": { "kind": "round", "d": 100 }, "system_kind": "drainage" },
+        { "name": "water", "origin": [0, "L * 0.9", "H"], "direction": [0, 1, 0], "profile": { "kind": "round", "d": 13 }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "L * 0.7"],
+            ["W / 2", "L * 0.7"],
+            ["W / 2", "L"],
+            ["-W / 2", "L"]
+          ],
+          "closed": true
+        },
+        { "kind": "arc", "c": [0, "L * 0.35"], "r": "W / 2", "start": 0, "sweep": 360 },
+        { "kind": "circle", "c": [0, "L * 0.4"], "r": 50 }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", 0, 0], "max": ["W / 2", "L", "H"] }],
+      "properties": [
+        { "name": "drain_size", "label": { "ja": "排水管径", "en": "Drain size" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_SanitaryTerminalTypeToiletPan.DrainSize", "default": 100 },
+        { "name": "flush_type", "label": { "ja": "洗浄方式", "en": "Flush type" }, "ty": "text", "ifc_property": "Pset_SanitaryTerminalTypeToiletPan.FlushType", "default": "サイホンゼット" },
+        {
+          "name": "fixture_units",
+          "label": { "ja": "器具排水負荷単位", "en": "Drainage fixture units" },
+          "ty": "real",
+          "unit": "dfu",
+          "ifc_property": "Pset_SanitaryTerminalOccurrence.FixtureUnits",
+          "default": 8
+        }
+      ]
+    },
+    {
+      "id": "sanitary.urinal",
+      "name": { "ja": "小便器（壁掛）", "en": "Urinal (wall hung)" },
+      "category": "sanitary",
+      "tags": ["urinal", "小便器", "衛生器具"],
+      "ifc_class": "IfcSanitaryTerminal",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 350, "min": 250, "max": 500, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Projection" }, "default": 400, "min": 250, "max": 600, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 600, "min": 400, "max": 1000, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "drain", "origin": [0, "L * 0.3", 0], "direction": [0, 0, -1], "profile": { "kind": "round", "d": 50 }, "system_kind": "drainage" },
+        { "name": "water", "origin": [0, 0, "H"], "direction": [0, -1, 0], "profile": { "kind": "round", "d": 13 }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", 0],
+            ["W / 2", 0],
+            ["W / 2", "L * 0.6"],
+            ["-W / 2", "L * 0.6"]
+          ],
+          "closed": true
+        },
+        { "kind": "arc", "c": [0, "L * 0.6"], "r": "W / 2", "start": 0, "sweep": 180 },
+        { "kind": "circle", "c": [0, "L * 0.3"], "r": 25 }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", 0, 0], "max": ["W / 2", "L", "H"] }],
+      "properties": [
+        { "name": "drain_size", "label": { "ja": "排水管径", "en": "Drain size" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_SanitaryTerminalTypeSanitaryFountain.DrainSize", "default": 50 },
+        {
+          "name": "fixture_units",
+          "label": { "ja": "器具排水負荷単位", "en": "Drainage fixture units" },
+          "ty": "real",
+          "unit": "dfu",
+          "ifc_property": "Pset_SanitaryTerminalOccurrence.FixtureUnits",
+          "default": 4
+        }
+      ]
+    },
+    {
+      "id": "sanitary.washbasin",
+      "name": { "ja": "洗面器", "en": "Wash basin" },
+      "category": "sanitary",
+      "tags": ["basin", "洗面器", "手洗", "衛生器具"],
+      "ifc_class": "IfcSanitaryTerminal",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 500, "min": 300, "max": 900, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Projection" }, "default": 450, "min": 250, "max": 600, "unit": "mm" },
+        { "name": "H", "label": { "ja": "取付高さ", "en": "Rim height" }, "default": 750, "min": 600, "max": 900, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "drain", "origin": [0, "L / 2", "H - 200"], "direction": [0, 0, -1], "profile": { "kind": "round", "d": 32 }, "system_kind": "drainage" },
+        { "name": "cold", "origin": ["-50", 0, "H"], "direction": [0, -1, 0], "profile": { "kind": "round", "d": 13 }, "system_kind": "water" },
+        { "name": "hot", "origin": [50, 0, "H"], "direction": [0, -1, 0], "profile": { "kind": "round", "d": 13 }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", 0],
+            ["W / 2", 0],
+            ["W / 2", "L"],
+            ["-W / 2", "L"]
+          ],
+          "closed": true
+        },
+        { "kind": "arc", "c": [0, "L / 2"], "r": "min(W, L) / 2 - 40", "start": 0, "sweep": 360 },
+        { "kind": "circle", "c": [0, "L / 2"], "r": 16 }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", 0, "H - 200"], "max": ["W / 2", "L", "H"] }],
+      "properties": [
+        { "name": "drain_size", "label": { "ja": "排水管径", "en": "Drain size" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_SanitaryTerminalTypeWashHandBasin.DrainSize", "default": 32 },
+        {
+          "name": "fixture_units",
+          "label": { "ja": "器具排水負荷単位", "en": "Drainage fixture units" },
+          "ty": "real",
+          "unit": "dfu",
+          "ifc_property": "Pset_SanitaryTerminalOccurrence.FixtureUnits",
+          "default": 1
+        },
+        {
+          "name": "supply_units",
+          "label": { "ja": "器具給水負荷単位", "en": "Supply fixture units" },
+          "ty": "real",
+          "unit": "wsfu",
+          "ifc_property": "Pset_SanitaryTerminalOccurrence.SupplyUnits",
+          "default": 1
+        }
+      ]
+    },
+    {
+      "id": "sanitary.sink",
+      "name": { "ja": "流し", "en": "Sink" },
+      "category": "sanitary",
+      "tags": ["sink", "流し", "シンク", "給湯室"],
+      "ifc_class": "IfcSanitaryTerminal",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 600, "min": 400, "max": 1200, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Depth" }, "default": 450, "min": 300, "max": 700, "unit": "mm" },
+        { "name": "H", "label": { "ja": "取付高さ", "en": "Rim height" }, "default": 800, "min": 700, "max": 950, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "drain", "origin": [0, "L / 2", "H - 250"], "direction": [0, 0, -1], "profile": { "kind": "round", "d": 40 }, "system_kind": "drainage" },
+        { "name": "cold", "origin": ["-60", 0, "H"], "direction": [0, -1, 0], "profile": { "kind": "round", "d": 13 }, "system_kind": "water" },
+        { "name": "hot", "origin": [60, 0, "H"], "direction": [0, -1, 0], "profile": { "kind": "round", "d": 13 }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", 0],
+            ["W / 2", 0],
+            ["W / 2", "L"],
+            ["-W / 2", "L"]
+          ],
+          "closed": true
+        },
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2 + 50", 50],
+            ["W / 2 - 50", 50],
+            ["W / 2 - 50", "L - 50"],
+            ["-W / 2 + 50", "L - 50"]
+          ],
+          "closed": true
+        },
+        { "kind": "circle", "c": [0, "L / 2"], "r": 20 }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", 0, "H - 250"], "max": ["W / 2", "L", "H"] }],
+      "properties": [
+        { "name": "drain_size", "label": { "ja": "排水管径", "en": "Drain size" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_SanitaryTerminalTypeSink.DrainSize", "default": 40 },
+        {
+          "name": "fixture_units",
+          "label": { "ja": "器具排水負荷単位", "en": "Drainage fixture units" },
+          "ty": "real",
+          "unit": "dfu",
+          "ifc_property": "Pset_SanitaryTerminalOccurrence.FixtureUnits",
+          "default": 2
+        }
+      ]
+    },
+    {
+      "id": "sanitary.floor_drain",
+      "name": { "ja": "床排水金物（トラップ付）", "en": "Floor drain with trap" },
+      "category": "sanitary",
+      "tags": ["drain", "床排水", "ドレン", "トラップ", "FD"],
+      "ifc_class": "IfcWasteTerminal",
+      "source": "generic",
+      "parameters": [
+        { "name": "SIZE", "label": { "ja": "目皿寸法", "en": "Grate size" }, "default": 150, "min": 100, "max": 450, "unit": "mm" },
+        { "name": "D", "label": { "ja": "接続径", "en": "Outlet bore" }, "default": 75, "min": 50, "max": 200, "unit": "mm" },
+        { "name": "H", "label": { "ja": "深さ", "en": "Depth" }, "default": 200, "min": 100, "max": 400, "unit": "mm" }
+      ],
+      "ports": [{ "name": "out", "origin": [0, 0, "-H"], "direction": [0, 0, -1], "profile": { "kind": "round", "d": "D" }, "system_kind": "drainage" }],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-SIZE / 2", "-SIZE / 2"],
+            ["SIZE / 2", "-SIZE / 2"],
+            ["SIZE / 2", "SIZE / 2"],
+            ["-SIZE / 2", "SIZE / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-SIZE / 2", "-SIZE / 2"], "b": ["SIZE / 2", "SIZE / 2"] },
+        { "kind": "line", "a": ["-SIZE / 2", "SIZE / 2"], "b": ["SIZE / 2", "-SIZE / 2"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-SIZE / 2", "-SIZE / 2", "-H"], "max": ["SIZE / 2", "SIZE / 2", 0] }],
+      "properties": [
+        { "name": "outlet_size", "label": { "ja": "接続径", "en": "Outlet size" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_WasteTerminalTypeFloorTrap.DrainSize", "default": 75 },
+        { "name": "trap_seal", "label": { "ja": "封水深", "en": "Trap seal depth" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_WasteTerminalTypeFloorTrap.TrapType", "default": 50 }
+      ]
+    },
+    {
+      "id": "sanitary.cleanout",
+      "name": { "ja": "掃除口", "en": "Cleanout" },
+      "category": "sanitary",
+      "tags": ["cleanout", "掃除口", "CO", "点検"],
+      "ifc_class": "IfcPipeFitting",
+      "source": "generic",
+      "parameters": [{ "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 100, "min": 50, "max": 300, "unit": "mm" }],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "drainage" },
+        { "name": "out", "origin": ["D * 2", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "drainage" }
+      ],
+      "symbol2d": [
+        { "kind": "circle", "c": ["D", 0], "r": "D / 2" },
+        { "kind": "line", "a": ["D - D / 2", 0], "b": ["D + D / 2", 0] },
+        { "kind": "text", "at": ["D + D * 0.7", "D * 0.3"], "value": "CO", "height": "D * 0.5" }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": ["D * 2", 0, 0], "radius": "D / 2 + 5" }],
+      "properties": [{ "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_PipeFittingTypeCommon.NominalDiameter" }]
+    },
+    {
+      "id": "sanitary.vent_cap",
+      "name": { "ja": "通気金物（ベントキャップ）", "en": "Vent terminal" },
+      "category": "sanitary",
+      "tags": ["vent", "通気", "ベントキャップ", "VE"],
+      "ifc_class": "IfcWasteTerminal",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 75, "min": 40, "max": 200, "unit": "mm" },
+        { "name": "H", "label": { "ja": "立上り高さ", "en": "Height above roof" }, "default": 200, "min": 100, "max": 600, "unit": "mm" }
+      ],
+      "ports": [{ "name": "in", "origin": [0, 0, 0], "direction": [0, 0, -1], "profile": { "kind": "round", "d": "D" }, "system_kind": "drainage" }],
+      "symbol2d": [
+        { "kind": "circle", "c": [0, 0], "r": "D / 2" },
+        { "kind": "circle", "c": [0, 0], "r": "D / 2 + 20" }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": [0, 0, "H"], "radius": "D / 2 + 20" }],
+      "properties": [{ "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_WasteTerminalTypeGullySump.DrainSize" }]
+    }
+  ]
+}

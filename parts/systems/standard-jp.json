@@ -1,0 +1,221 @@
+{
+  "$comment": "Standard Japanese building services systems. Colours are AutoCAD colour indices so they survive a DXF round trip; layer names follow the JIS/SXF-style discipline prefixes used in Japanese practice (M = 機械設備, E = 電気設備, P = 衛生設備).",
+  "systems": [
+    {
+      "id": "sys.air.supply",
+      "name": { "ja": "給気", "en": "Supply air" },
+      "kind": "air",
+      "color": 5,
+      "layer": "M-DUCT-SA",
+      "default_elevation": 3200,
+      "abbreviation": "SA"
+    },
+    {
+      "id": "sys.air.return",
+      "name": { "ja": "還気", "en": "Return air" },
+      "kind": "air",
+      "color": 4,
+      "layer": "M-DUCT-RA",
+      "default_elevation": 3200,
+      "abbreviation": "RA"
+    },
+    {
+      "id": "sys.air.exhaust",
+      "name": { "ja": "排気", "en": "Exhaust air" },
+      "kind": "air",
+      "color": 6,
+      "layer": "M-DUCT-EA",
+      "default_elevation": 3200,
+      "abbreviation": "EA"
+    },
+    {
+      "id": "sys.air.outside",
+      "name": { "ja": "外気", "en": "Outside air" },
+      "kind": "air",
+      "color": 3,
+      "layer": "M-DUCT-OA",
+      "default_elevation": 3200,
+      "abbreviation": "OA"
+    },
+    {
+      "id": "sys.air.smoke",
+      "name": { "ja": "排煙", "en": "Smoke exhaust" },
+      "kind": "air",
+      "color": 1,
+      "layer": "M-DUCT-SE",
+      "default_elevation": 3400,
+      "abbreviation": "SE"
+    },
+    {
+      "id": "sys.water.cold",
+      "name": { "ja": "給水", "en": "Cold water" },
+      "kind": "water",
+      "color": 5,
+      "layer": "P-PIPE-CW",
+      "default_elevation": 2800,
+      "abbreviation": "CW"
+    },
+    {
+      "id": "sys.water.hot",
+      "name": { "ja": "給湯", "en": "Hot water" },
+      "kind": "water",
+      "color": 1,
+      "layer": "P-PIPE-HW",
+      "default_elevation": 2800,
+      "abbreviation": "HW"
+    },
+    {
+      "id": "sys.water.hot_return",
+      "name": { "ja": "返湯", "en": "Hot water return" },
+      "kind": "water",
+      "color": 30,
+      "layer": "P-PIPE-HWR",
+      "default_elevation": 2800,
+      "abbreviation": "HWR"
+    },
+    {
+      "id": "sys.drain.soil",
+      "name": { "ja": "汚水", "en": "Soil" },
+      "kind": "drainage",
+      "color": 2,
+      "layer": "P-PIPE-SO",
+      "default_elevation": 2600,
+      "abbreviation": "SO"
+    },
+    {
+      "id": "sys.drain.waste",
+      "name": { "ja": "雑排水", "en": "Waste" },
+      "kind": "drainage",
+      "color": 42,
+      "layer": "P-PIPE-WA",
+      "default_elevation": 2600,
+      "abbreviation": "WA"
+    },
+    {
+      "id": "sys.drain.vent",
+      "name": { "ja": "通気", "en": "Vent" },
+      "kind": "drainage",
+      "color": 8,
+      "layer": "P-PIPE-VE",
+      "default_elevation": 3000,
+      "abbreviation": "VE"
+    },
+    {
+      "id": "sys.drain.rain",
+      "name": { "ja": "雨水", "en": "Rainwater" },
+      "kind": "drainage",
+      "color": 141,
+      "layer": "P-PIPE-RA",
+      "default_elevation": 2600,
+      "abbreviation": "RD"
+    },
+    {
+      "id": "sys.hydronic.chilled",
+      "name": { "ja": "冷水", "en": "Chilled water" },
+      "kind": "hydronic",
+      "color": 150,
+      "layer": "M-PIPE-CH",
+      "default_elevation": 3000,
+      "abbreviation": "CH"
+    },
+    {
+      "id": "sys.hydronic.heating",
+      "name": { "ja": "温水", "en": "Heating water" },
+      "kind": "hydronic",
+      "color": 20,
+      "layer": "M-PIPE-HT",
+      "default_elevation": 3000,
+      "abbreviation": "HT"
+    },
+    {
+      "id": "sys.hydronic.refrigerant",
+      "name": { "ja": "冷媒", "en": "Refrigerant" },
+      "kind": "hydronic",
+      "color": 214,
+      "layer": "M-PIPE-REF",
+      "default_elevation": 3000,
+      "abbreviation": "REF"
+    },
+    {
+      "id": "sys.hydronic.condensate",
+      "name": { "ja": "ドレン", "en": "Condensate" },
+      "kind": "drainage",
+      "color": 94,
+      "layer": "M-PIPE-DR",
+      "default_elevation": 2900,
+      "abbreviation": "DR"
+    },
+    {
+      "id": "sys.fire.sprinkler",
+      "name": { "ja": "スプリンクラー", "en": "Sprinkler" },
+      "kind": "fire_protection",
+      "color": 1,
+      "layer": "F-PIPE-SP",
+      "default_elevation": 3300,
+      "abbreviation": "SP"
+    },
+    {
+      "id": "sys.fire.hydrant",
+      "name": { "ja": "屋内消火栓", "en": "Fire hydrant" },
+      "kind": "fire_protection",
+      "color": 12,
+      "layer": "F-PIPE-FH",
+      "default_elevation": 3300,
+      "abbreviation": "FH"
+    },
+    {
+      "id": "sys.gas.city",
+      "name": { "ja": "都市ガス", "en": "City gas" },
+      "kind": "gas",
+      "color": 2,
+      "layer": "P-PIPE-GAS",
+      "default_elevation": 2700,
+      "abbreviation": "G"
+    },
+    {
+      "id": "sys.power.lighting",
+      "name": { "ja": "電灯", "en": "Lighting" },
+      "kind": "power",
+      "color": 2,
+      "layer": "E-POWR-LTG",
+      "default_elevation": 3400,
+      "abbreviation": "L"
+    },
+    {
+      "id": "sys.power.outlet",
+      "name": { "ja": "コンセント", "en": "Power outlets" },
+      "kind": "power",
+      "color": 3,
+      "layer": "E-POWR-RCP",
+      "default_elevation": 3400,
+      "abbreviation": "P"
+    },
+    {
+      "id": "sys.power.motor",
+      "name": { "ja": "動力", "en": "Motor power" },
+      "kind": "power",
+      "color": 1,
+      "layer": "E-POWR-MTR",
+      "default_elevation": 3400,
+      "abbreviation": "M"
+    },
+    {
+      "id": "sys.signal.telecom",
+      "name": { "ja": "電話・LAN", "en": "Telecom" },
+      "kind": "signal",
+      "color": 4,
+      "layer": "E-COMM-TEL",
+      "default_elevation": 3400,
+      "abbreviation": "T"
+    },
+    {
+      "id": "sys.signal.fire_alarm",
+      "name": { "ja": "自動火災報知", "en": "Fire alarm" },
+      "kind": "signal",
+      "color": 1,
+      "layer": "E-FIRE-ALM",
+      "default_elevation": 3400,
+      "abbreviation": "FA"
+    }
+  ]
+}

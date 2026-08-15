@@ -1,0 +1,284 @@
+{
+  "$comment": "Electrical fixtures and equipment. Plan symbols follow JIS C 0303 (構内電気設備の配線用図記号); symbol sizes are in drawing millimetres at 1:1 and are scaled with the annotation scale when placed.",
+  "parts": [
+    {
+      "id": "electrical.light.baselight",
+      "name": { "ja": "ベースライト（埋込）", "en": "Recessed linear luminaire" },
+      "category": "electrical-fixture",
+      "tags": ["照明", "ベースライト", "LED", "light"],
+      "ifc_class": "IfcLightFixture",
+      "source": "JIS C 0303",
+      "parameters": [
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": 1250, "min": 300, "max": 2500, "unit": "mm" },
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 230, "min": 100, "max": 700, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 100, "min": 50, "max": 300, "unit": "mm" }
+      ],
+      "ports": [{ "name": "power", "origin": [0, 0, "H"], "direction": [0, 0, 1], "profile": { "kind": "terminal" }, "system_kind": "power" }],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-L / 2", "-W / 2"],
+            ["L / 2", "-W / 2"],
+            ["L / 2", "W / 2"],
+            ["-L / 2", "W / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-L / 2", 0], "b": ["L / 2", 0] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-L / 2", "-W / 2", 0], "max": ["L / 2", "W / 2", "H"] }],
+      "properties": [
+        { "name": "power_input", "label": { "ja": "消費電力", "en": "Power input" }, "ty": "real", "unit": "W", "ifc_property": "Pset_LightFixtureTypeCommon.TotalWattage", "default": 40 },
+        {
+          "name": "luminous_flux",
+          "label": { "ja": "光束", "en": "Luminous flux" },
+          "ty": "real",
+          "unit": "lm",
+          "ifc_property": "Pset_LightFixtureTypeCommon.LightFixtureMountingType",
+          "default": 5000
+        },
+        { "name": "circuit", "label": { "ja": "回路番号", "en": "Circuit" }, "ty": "text", "ifc_property": "Pset_ElectricalDeviceCommon.ElectricalDeviceNominalPower", "default": "L-1" }
+      ]
+    },
+    {
+      "id": "electrical.light.downlight",
+      "name": { "ja": "ダウンライト", "en": "Downlight" },
+      "category": "electrical-fixture",
+      "tags": ["照明", "ダウンライト", "DL", "light"],
+      "ifc_class": "IfcLightFixture",
+      "source": "JIS C 0303",
+      "parameters": [
+        { "name": "D", "label": { "ja": "埋込穴径", "en": "Cut-out diameter" }, "default": 150, "min": 75, "max": 300, "unit": "mm" },
+        { "name": "H", "label": { "ja": "埋込高さ", "en": "Recess depth" }, "default": 120, "min": 50, "max": 300, "unit": "mm" }
+      ],
+      "ports": [{ "name": "power", "origin": [0, 0, "H"], "direction": [0, 0, 1], "profile": { "kind": "terminal" }, "system_kind": "power" }],
+      "symbol2d": [
+        { "kind": "circle", "c": [0, 0], "r": "D / 2" },
+        { "kind": "line", "a": ["-D / 2", 0], "b": ["D / 2", 0] },
+        { "kind": "line", "a": [0, "-D / 2"], "b": [0, "D / 2"] }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": [0, 0, "H"], "radius": "D / 2" }],
+      "properties": [
+        { "name": "power_input", "label": { "ja": "消費電力", "en": "Power input" }, "ty": "real", "unit": "W", "ifc_property": "Pset_LightFixtureTypeCommon.TotalWattage", "default": 10 },
+        { "name": "circuit", "label": { "ja": "回路番号", "en": "Circuit" }, "ty": "text", "ifc_property": "Pset_ElectricalDeviceCommon.ElectricalDeviceNominalPower", "default": "L-1" }
+      ]
+    },
+    {
+      "id": "electrical.light.emergency",
+      "name": { "ja": "非常用照明", "en": "Emergency luminaire" },
+      "category": "electrical-fixture",
+      "tags": ["照明", "非常照明", "非常用", "emergency"],
+      "ifc_class": "IfcLightFixture",
+      "source": "JIS C 0303",
+      "parameters": [
+        { "name": "D", "label": { "ja": "外径", "en": "Diameter" }, "default": 150, "min": 100, "max": 300, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 120, "min": 50, "max": 300, "unit": "mm" }
+      ],
+      "ports": [{ "name": "power", "origin": [0, 0, "H"], "direction": [0, 0, 1], "profile": { "kind": "terminal" }, "system_kind": "power" }],
+      "symbol2d": [
+        { "kind": "circle", "c": [0, 0], "r": "D / 2" },
+        { "kind": "circle", "c": [0, 0], "r": "D / 4" },
+        { "kind": "line", "a": ["-D / 2", "-D / 2"], "b": ["D / 2", "D / 2"] },
+        { "kind": "line", "a": ["-D / 2", "D / 2"], "b": ["D / 2", "-D / 2"] }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": [0, 0, "H"], "radius": "D / 2" }],
+      "properties": [
+        { "name": "power_input", "label": { "ja": "消費電力", "en": "Power input" }, "ty": "real", "unit": "W", "ifc_property": "Pset_LightFixtureTypeCommon.TotalWattage", "default": 15 },
+        { "name": "backup_minutes", "label": { "ja": "点灯時間", "en": "Backup duration" }, "ty": "int", "unit": "min", "ifc_property": "Pset_LightFixtureTypeCommon.MaintenanceFactor", "default": 30 }
+      ]
+    },
+    {
+      "id": "electrical.light.exit_sign",
+      "name": { "ja": "誘導灯", "en": "Exit sign" },
+      "category": "electrical-fixture",
+      "tags": ["誘導灯", "避難", "exit"],
+      "ifc_class": "IfcLightFixture",
+      "source": "JIS C 0303",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 300, "min": 150, "max": 600, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 150, "min": 100, "max": 400, "unit": "mm" },
+        { "name": "T", "label": { "ja": "厚さ", "en": "Thickness" }, "default": 50, "min": 20, "max": 150, "unit": "mm" }
+      ],
+      "ports": [{ "name": "power", "origin": [0, 0, "H / 2"], "direction": [0, 0, 1], "profile": { "kind": "terminal" }, "system_kind": "power" }],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "-T / 2"],
+            ["W / 2", "-T / 2"],
+            ["W / 2", "T / 2"],
+            ["-W / 2", "T / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-W / 4", 0], "b": ["W / 4", 0] },
+        { "kind": "line", "a": ["W / 4", 0], "b": ["W / 8", "T / 3"] },
+        { "kind": "line", "a": ["W / 4", 0], "b": ["W / 8", "-T / 3"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", "-T / 2", 0], "max": ["W / 2", "T / 2", "H"] }],
+      "properties": [
+        { "name": "power_input", "label": { "ja": "消費電力", "en": "Power input" }, "ty": "real", "unit": "W", "ifc_property": "Pset_LightFixtureTypeCommon.TotalWattage", "default": 5 },
+        { "name": "class", "label": { "ja": "区分", "en": "Class" }, "ty": "text", "ifc_property": "Pset_LightFixtureTypeCommon.LightFixtureMountingType", "default": "C級" }
+      ]
+    },
+    {
+      "id": "electrical.outlet.duplex",
+      "name": { "ja": "コンセント（2口）", "en": "Duplex receptacle" },
+      "category": "electrical-fixture",
+      "tags": ["コンセント", "受口", "outlet", "receptacle"],
+      "ifc_class": "IfcOutlet",
+      "source": "JIS C 0303",
+      "parameters": [
+        { "name": "R", "label": { "ja": "記号半径", "en": "Symbol radius" }, "default": 75, "min": 25, "max": 200, "unit": "mm" },
+        { "name": "MH", "label": { "ja": "取付高さ", "en": "Mounting height" }, "default": 300, "min": 0, "max": 2000, "unit": "mm" }
+      ],
+      "ports": [{ "name": "power", "origin": [0, 0, 0], "direction": [0, -1, 0], "profile": { "kind": "terminal" }, "system_kind": "power" }],
+      "symbol2d": [
+        { "kind": "arc", "c": [0, 0], "r": "R", "start": 0, "sweep": 180 },
+        { "kind": "line", "a": ["-R", 0], "b": ["R", 0] },
+        { "kind": "line", "a": [0, 0], "b": [0, "-R * 0.8"] },
+        { "kind": "line", "a": ["-R * 0.4", "-R * 0.5"], "b": ["R * 0.4", "-R * 0.5"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-50", "-20", 0], "max": [50, 20, 100] }],
+      "properties": [
+        { "name": "mounting_height", "label": { "ja": "取付高さ", "en": "Mounting height" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_OutletTypeCommon.MountingHeight", "default": 300 },
+        { "name": "rating", "label": { "ja": "定格", "en": "Rating" }, "ty": "text", "ifc_property": "Pset_OutletTypeCommon.NumberOfSockets", "default": "15A 125V" },
+        { "name": "circuit", "label": { "ja": "回路番号", "en": "Circuit" }, "ty": "text", "ifc_property": "Pset_ElectricalDeviceCommon.ElectricalDeviceNominalPower", "default": "P-1" }
+      ]
+    },
+    {
+      "id": "electrical.switch.single",
+      "name": { "ja": "スイッチ（片切）", "en": "Single-pole switch" },
+      "category": "electrical-fixture",
+      "tags": ["スイッチ", "点滅器", "switch"],
+      "ifc_class": "IfcSwitchingDevice",
+      "source": "JIS C 0303",
+      "parameters": [
+        { "name": "R", "label": { "ja": "記号半径", "en": "Symbol radius" }, "default": 60, "min": 25, "max": 200, "unit": "mm" },
+        { "name": "MH", "label": { "ja": "取付高さ", "en": "Mounting height" }, "default": 1200, "min": 0, "max": 2000, "unit": "mm" }
+      ],
+      "ports": [{ "name": "power", "origin": [0, 0, 0], "direction": [0, -1, 0], "profile": { "kind": "terminal" }, "system_kind": "power" }],
+      "symbol2d": [
+        { "kind": "circle", "c": [0, 0], "r": "R" },
+        { "kind": "line", "a": [0, "R"], "b": ["R * 1.5", "R * 2"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-50", "-20", 0], "max": [50, 20, 120] }],
+      "properties": [
+        {
+          "name": "mounting_height",
+          "label": { "ja": "取付高さ", "en": "Mounting height" },
+          "ty": "real",
+          "unit": "mm",
+          "ifc_property": "Pset_SwitchingDeviceTypeCommon.SwitchFunction",
+          "default": 1200
+        },
+        { "name": "poles", "label": { "ja": "極数", "en": "Poles" }, "ty": "int", "unit": "count", "ifc_property": "Pset_SwitchingDeviceTypeCommon.NumberOfGangs", "default": 1 }
+      ]
+    },
+    {
+      "id": "electrical.panel.distribution",
+      "name": { "ja": "分電盤", "en": "Distribution board" },
+      "category": "electrical-equipment",
+      "tags": ["分電盤", "盤", "panel", "board"],
+      "ifc_class": "IfcElectricDistributionBoard",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 600, "min": 300, "max": 2000, "unit": "mm" },
+        { "name": "T", "label": { "ja": "奥行", "en": "Depth" }, "default": 150, "min": 80, "max": 600, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 800, "min": 300, "max": 2300, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "incoming", "origin": [0, 0, "H"], "direction": [0, 0, 1], "profile": { "kind": "terminal" }, "system_kind": "power" },
+        { "name": "outgoing", "origin": [0, 0, 0], "direction": [0, 0, -1], "profile": { "kind": "terminal" }, "system_kind": "power" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "-T / 2"],
+            ["W / 2", "-T / 2"],
+            ["W / 2", "T / 2"],
+            ["-W / 2", "T / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-W / 2", "-T / 2"], "b": ["W / 2", "T / 2"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", "-T / 2", 0], "max": ["W / 2", "T / 2", "H"] }],
+      "properties": [
+        { "name": "main_breaker", "label": { "ja": "主幹容量", "en": "Main breaker" }, "ty": "text", "ifc_property": "Pset_ElectricDistributionBoardTypeCommon.RatedCurrent", "default": "100A" },
+        {
+          "name": "circuits",
+          "label": { "ja": "分岐回路数", "en": "Number of circuits" },
+          "ty": "int",
+          "unit": "count",
+          "ifc_property": "Pset_ElectricDistributionBoardTypeCommon.NumberOfCircuits",
+          "default": 20
+        },
+        { "name": "voltage", "label": { "ja": "電圧", "en": "Voltage" }, "ty": "text", "ifc_property": "Pset_ElectricDistributionBoardTypeCommon.RatedVoltage", "default": "AC100/200V" },
+        { "name": "tag", "label": { "ja": "盤記号", "en": "Tag" }, "ty": "text", "ifc_property": "Pset_ManufacturerTypeInformation.ModelReference", "default": "L-1F" }
+      ]
+    },
+    {
+      "id": "electrical.ventilation_fan",
+      "name": { "ja": "換気扇（天井埋込）", "en": "Ceiling exhaust fan" },
+      "category": "electrical-equipment",
+      "tags": ["換気扇", "排気", "fan", "トイレ"],
+      "ifc_class": "IfcFan",
+      "source": "generic",
+      "parameters": [
+        { "name": "SIZE", "label": { "ja": "外形寸法", "en": "Body size" }, "default": 300, "min": 150, "max": 600, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 250, "min": 100, "max": 500, "unit": "mm" },
+        { "name": "D", "label": { "ja": "接続径", "en": "Duct diameter" }, "default": 100, "min": 75, "max": 250, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "out", "origin": ["SIZE / 2", 0, "H / 2"], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "power", "origin": [0, "SIZE / 2", "H"], "direction": [0, 1, 0], "profile": { "kind": "terminal" }, "system_kind": "power" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-SIZE / 2", "-SIZE / 2"],
+            ["SIZE / 2", "-SIZE / 2"],
+            ["SIZE / 2", "SIZE / 2"],
+            ["-SIZE / 2", "SIZE / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "circle", "c": [0, 0], "r": "SIZE / 3" },
+        { "kind": "line", "a": ["-SIZE / 3", "-SIZE / 3"], "b": ["SIZE / 3", "SIZE / 3"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-SIZE / 2", "-SIZE / 2", 0], "max": ["SIZE / 2", "SIZE / 2", "H"] }],
+      "properties": [
+        { "name": "airflow", "label": { "ja": "風量", "en": "Airflow" }, "ty": "real", "unit": "m3/h", "ifc_property": "Pset_FanTypeCommon.NominalAirFlowRate", "default": 150 },
+        { "name": "power_input", "label": { "ja": "消費電力", "en": "Power input" }, "ty": "real", "unit": "W", "ifc_property": "Pset_FanTypeCommon.NominalPowerRate", "default": 20 }
+      ]
+    },
+    {
+      "id": "electrical.detector.smoke",
+      "name": { "ja": "煙感知器", "en": "Smoke detector" },
+      "category": "electrical-fixture",
+      "tags": ["感知器", "煙感知器", "自火報", "detector"],
+      "ifc_class": "IfcSensor",
+      "source": "JIS C 0303",
+      "parameters": [
+        { "name": "D", "label": { "ja": "外径", "en": "Diameter" }, "default": 100, "min": 50, "max": 200, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 50, "min": 25, "max": 150, "unit": "mm" }
+      ],
+      "ports": [{ "name": "signal", "origin": [0, 0, "H"], "direction": [0, 0, 1], "profile": { "kind": "terminal" }, "system_kind": "signal" }],
+      "symbol2d": [
+        { "kind": "circle", "c": [0, 0], "r": "D / 2" },
+        { "kind": "line", "a": ["-D / 4", "-D / 4"], "b": ["D / 4", "-D / 4"] },
+        { "kind": "line", "a": ["-D / 4", 0], "b": ["D / 4", 0] },
+        { "kind": "line", "a": ["-D / 4", "D / 4"], "b": ["D / 4", "D / 4"] }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": [0, 0, "H"], "radius": "D / 2" }],
+      "properties": [
+        { "name": "detector_type", "label": { "ja": "種別", "en": "Detector type" }, "ty": "text", "ifc_property": "Pset_SensorTypeCommon.SensorType", "default": "光電式スポット型2種" },
+        { "name": "coverage", "label": { "ja": "感知面積", "en": "Coverage area" }, "ty": "real", "unit": "m2", "ifc_property": "Pset_SensorTypeCommon.CoverageArea", "default": 150 }
+      ]
+    }
+  ]
+}

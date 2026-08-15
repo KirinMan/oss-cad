@@ -1,0 +1,86 @@
+{
+  "$comment": "Supports and penetrations. These carry no flow, so they are the one category allowed to have no ports; they are still first-class parts because they are counted in take-off and they occupy space that clash detection must see.",
+  "parts": [
+    {
+      "id": "support.rod_hanger",
+      "name": { "ja": "吊りボルト支持", "en": "Rod hanger" },
+      "category": "support",
+      "tags": ["支持", "吊り", "吊りボルト", "hanger", "サポート"],
+      "ifc_class": "IfcDiscreteAccessory",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "ボルト径", "en": "Rod diameter" }, "default": 9, "min": 6, "max": 24, "unit": "mm", "choices": [9, 12, 16, 20] },
+        { "name": "H", "label": { "ja": "吊り長さ", "en": "Drop" }, "default": 500, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "W", "label": { "ja": "支持間隔", "en": "Bearer width" }, "default": 400, "min": 100, "max": 2000, "unit": "mm" }
+      ],
+      "ports": [],
+      "symbol2d": [
+        { "kind": "circle", "c": ["-W / 2", 0], "r": "D" },
+        { "kind": "circle", "c": ["W / 2", 0], "r": "D" },
+        { "kind": "line", "a": ["-W / 2", 0], "b": ["W / 2", 0] }
+      ],
+      "body3d": [
+        { "kind": "cylinder", "base": ["-W / 2", 0, 0], "axis": [0, 0, "H"], "radius": "D / 2" },
+        { "kind": "cylinder", "base": ["W / 2", 0, 0], "axis": [0, 0, "H"], "radius": "D / 2" },
+        { "kind": "box", "min": ["-W / 2 - 20", "-20", "-40"], "max": ["W / 2 + 20", 20, 0] }
+      ],
+      "properties": [
+        { "name": "rod_diameter", "label": { "ja": "ボルト径", "en": "Rod diameter" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DiscreteAccessoryTypeCommon.NominalDiameter" },
+        { "name": "spacing", "label": { "ja": "支持間隔", "en": "Spacing" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DiscreteAccessoryOccurrence.Spacing", "default": 2000 }
+      ]
+    },
+    {
+      "id": "penetration.sleeve",
+      "name": { "ja": "スリーブ", "en": "Sleeve" },
+      "category": "penetration",
+      "tags": ["スリーブ", "貫通", "sleeve", "打込み"],
+      "ifc_class": "IfcOpeningElement",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "スリーブ径", "en": "Sleeve diameter" }, "default": 100, "min": 25, "max": 800, "unit": "mm" },
+        { "name": "T", "label": { "ja": "躯体厚", "en": "Slab or wall thickness" }, "default": 200, "min": 50, "max": 1200, "unit": "mm" }
+      ],
+      "ports": [{ "name": "through", "origin": [0, 0, 0], "direction": [0, 0, -1], "profile": { "kind": "round", "d": "D" }, "system_kind": "generic" }],
+      "symbol2d": [
+        { "kind": "circle", "c": [0, 0], "r": "D / 2" },
+        { "kind": "line", "a": ["-D / 2", "-D / 2"], "b": ["D / 2", "D / 2"] }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": [0, 0, "-T"], "radius": "D / 2" }],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "スリーブ径", "en": "Sleeve diameter" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_OpeningElementCommon.NominalDiameter" },
+        { "name": "material", "label": { "ja": "材質", "en": "Material" }, "ty": "text", "ifc_property": "Pset_OpeningElementCommon.Reference", "default": "つば付き鋼管" },
+        { "name": "fire_stopped", "label": { "ja": "区画貫通処理", "en": "Fire stopped" }, "ty": "bool", "ifc_property": "Pset_OpeningElementCommon.FireExit", "default": false }
+      ]
+    },
+    {
+      "id": "support.cable_tray",
+      "name": { "ja": "ケーブルラック", "en": "Cable tray" },
+      "category": "support",
+      "tags": ["ケーブルラック", "ラック", "cable tray", "電気"],
+      "ifc_class": "IfcCableCarrierSegment",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 300, "min": 100, "max": 1200, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Side height" }, "default": 50, "min": 25, "max": 150, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": 2000, "min": 500, "max": 4000, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "power" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "power" }
+      ],
+      "symbol2d": [
+        { "kind": "line", "a": [0, "-W / 2"], "b": ["L", "-W / 2"] },
+        { "kind": "line", "a": [0, "W / 2"], "b": ["L", "W / 2"] },
+        { "kind": "line", "a": ["L / 4", "-W / 2"], "b": ["L / 4", "W / 2"] },
+        { "kind": "line", "a": ["L / 2", "-W / 2"], "b": ["L / 2", "W / 2"] },
+        { "kind": "line", "a": ["L * 3 / 4", "-W / 2"], "b": ["L * 3 / 4", "W / 2"] }
+      ],
+      "body3d": [{ "kind": "box", "min": [0, "-W / 2", "-H"], "max": ["L", "W / 2", 0] }],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_CableCarrierSegmentTypeCableTraySegment.NominalWidth" },
+        { "name": "height", "label": { "ja": "高さ", "en": "Height" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_CableCarrierSegmentTypeCableTraySegment.NominalHeight" },
+        { "name": "finish", "label": { "ja": "仕上げ", "en": "Finish" }, "ty": "text", "ifc_property": "Pset_CableCarrierSegmentTypeCableTraySegment.Material", "default": "溶融亜鉛めっき" }
+      ]
+    }
+  ]
+}

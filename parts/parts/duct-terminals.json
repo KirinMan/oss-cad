@@ -1,0 +1,202 @@
+{
+  "$comment": "Air terminals. The connection port faces up (+Z) for ceiling-mounted units, since that is where the branch duct comes from; the visible face is at Z = 0, the ceiling plane.",
+  "parts": [
+    {
+      "id": "duct.terminal.anemostat",
+      "name": { "ja": "アネモ型吹出口", "en": "Anemostat diffuser" },
+      "category": "duct-terminal",
+      "tags": ["diffuser", "アネモ", "吹出口", "SA"],
+      "ifc_class": "IfcAirTerminal",
+      "source": "generic",
+      "parameters": [
+        { "name": "SIZE", "label": { "ja": "呼び寸法", "en": "Nominal size" }, "default": 300, "min": 150, "max": 900, "unit": "mm" },
+        { "name": "D", "label": { "ja": "接続径", "en": "Neck diameter" }, "default": "max(SIZE * 0.6, 100)", "min": 100, "unit": "mm" },
+        { "name": "T", "label": { "ja": "全高", "en": "Depth" }, "default": "SIZE * 0.5", "min": 50, "unit": "mm" }
+      ],
+      "ports": [{ "name": "in", "origin": [0, 0, "T"], "direction": [0, 0, 1], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" }],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-SIZE / 2", "-SIZE / 2"],
+            ["SIZE / 2", "-SIZE / 2"],
+            ["SIZE / 2", "SIZE / 2"],
+            ["-SIZE / 2", "SIZE / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "circle", "c": [0, 0], "r": "D / 2" },
+        { "kind": "line", "a": ["-SIZE / 2", "-SIZE / 2"], "b": ["-D / 2", "-D / 2"] },
+        { "kind": "line", "a": ["SIZE / 2", "-SIZE / 2"], "b": ["D / 2", "-D / 2"] },
+        { "kind": "line", "a": ["SIZE / 2", "SIZE / 2"], "b": ["D / 2", "D / 2"] },
+        { "kind": "line", "a": ["-SIZE / 2", "SIZE / 2"], "b": ["-D / 2", "D / 2"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-SIZE / 2", "-SIZE / 2", 0], "max": ["SIZE / 2", "SIZE / 2", "T"] }],
+      "properties": [
+        { "name": "size", "label": { "ja": "呼び寸法", "en": "Nominal size" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_AirTerminalTypeCommon.NominalWidth" },
+        { "name": "airflow", "label": { "ja": "風量", "en": "Airflow" }, "ty": "real", "unit": "m3/h", "ifc_property": "Pset_AirTerminalTypeCommon.AirFlowrateRange", "default": 300 },
+        { "name": "system", "label": { "ja": "系統", "en": "System" }, "ty": "text", "ifc_property": "Pset_DistributionSystem.Name", "default": "SA" }
+      ]
+    },
+    {
+      "id": "duct.terminal.register",
+      "name": { "ja": "レジスタ（シャッター付）", "en": "Register with damper" },
+      "category": "duct-terminal",
+      "tags": ["register", "レジスタ", "吹出口", "吸込口"],
+      "ifc_class": "IfcAirTerminal",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 400, "min": 100, "max": 1500, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 200, "min": 100, "max": 1000, "unit": "mm" },
+        { "name": "T", "label": { "ja": "奥行", "en": "Depth" }, "default": 150, "min": 50, "max": 400, "unit": "mm" }
+      ],
+      "ports": [{ "name": "in", "origin": [0, 0, "T"], "direction": [0, 0, 1], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" }],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "-H / 2"],
+            ["W / 2", "-H / 2"],
+            ["W / 2", "H / 2"],
+            ["-W / 2", "H / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-W / 2", "-H / 6"], "b": ["W / 2", "-H / 6"] },
+        { "kind": "line", "a": ["-W / 2", "H / 6"], "b": ["W / 2", "H / 6"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", "-H / 2", 0], "max": ["W / 2", "H / 2", "T"] }],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_AirTerminalTypeCommon.NominalWidth" },
+        { "name": "height", "label": { "ja": "高さ", "en": "Height" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_AirTerminalTypeCommon.NominalHeight" },
+        { "name": "airflow", "label": { "ja": "風量", "en": "Airflow" }, "ty": "real", "unit": "m3/h", "ifc_property": "Pset_AirTerminalTypeCommon.AirFlowrateRange", "default": 400 }
+      ]
+    },
+    {
+      "id": "duct.terminal.grille",
+      "name": { "ja": "グリル（吸込口）", "en": "Return grille" },
+      "category": "duct-terminal",
+      "tags": ["grille", "グリル", "吸込口", "RA"],
+      "ifc_class": "IfcAirTerminal",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 600, "min": 100, "max": 2000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 300, "min": 100, "max": 1200, "unit": "mm" },
+        { "name": "T", "label": { "ja": "奥行", "en": "Depth" }, "default": 100, "min": 40, "max": 300, "unit": "mm" }
+      ],
+      "ports": [{ "name": "out", "origin": [0, 0, "T"], "direction": [0, 0, 1], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" }],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "-H / 2"],
+            ["W / 2", "-H / 2"],
+            ["W / 2", "H / 2"],
+            ["-W / 2", "H / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-W / 2", "-H / 4"], "b": ["W / 2", "-H / 4"] },
+        { "kind": "line", "a": ["-W / 2", 0], "b": ["W / 2", 0] },
+        { "kind": "line", "a": ["-W / 2", "H / 4"], "b": ["W / 2", "H / 4"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", "-H / 2", 0], "max": ["W / 2", "H / 2", "T"] }],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_AirTerminalTypeCommon.NominalWidth" },
+        { "name": "airflow", "label": { "ja": "風量", "en": "Airflow" }, "ty": "real", "unit": "m3/h", "ifc_property": "Pset_AirTerminalTypeCommon.AirFlowrateRange", "default": 600 }
+      ]
+    },
+    {
+      "id": "duct.terminal.nozzle",
+      "name": { "ja": "ノズル型吹出口", "en": "Nozzle diffuser" },
+      "category": "duct-terminal",
+      "tags": ["nozzle", "ノズル", "吹出口"],
+      "ifc_class": "IfcAirTerminal",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Diameter" }, "default": 200, "min": 100, "max": 600, "unit": "mm" },
+        { "name": "T", "label": { "ja": "奥行", "en": "Depth" }, "default": "D * 0.8", "min": 50, "unit": "mm" }
+      ],
+      "ports": [{ "name": "in", "origin": [0, 0, "T"], "direction": [0, 0, 1], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" }],
+      "symbol2d": [
+        { "kind": "circle", "c": [0, 0], "r": "D / 2" },
+        { "kind": "circle", "c": [0, 0], "r": "D / 3" }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": [0, 0, "T"], "radius": "D / 2" }],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "呼び径", "en": "Diameter" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_AirTerminalTypeCommon.NominalDiameter" },
+        { "name": "airflow", "label": { "ja": "風量", "en": "Airflow" }, "ty": "real", "unit": "m3/h", "ifc_property": "Pset_AirTerminalTypeCommon.AirFlowrateRange", "default": 500 }
+      ]
+    },
+    {
+      "id": "duct.terminal.louver",
+      "name": { "ja": "ガラリ", "en": "Weather louver" },
+      "category": "duct-terminal",
+      "tags": ["louver", "ガラリ", "外気", "OA", "EA"],
+      "ifc_class": "IfcAirTerminal",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 900, "min": 200, "max": 3000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 600, "min": 200, "max": 3000, "unit": "mm" },
+        { "name": "T", "label": { "ja": "奥行", "en": "Depth" }, "default": 150, "min": 80, "max": 400, "unit": "mm" }
+      ],
+      "ports": [{ "name": "duct", "origin": [0, "T", 0], "direction": [0, 1, 0], "profile": { "kind": "rect", "w": "W * 0.8", "h": "H * 0.8" }, "system_kind": "air" }],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", 0],
+            ["W / 2", 0],
+            ["W / 2", "T"],
+            ["-W / 2", "T"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-W / 2", "T / 3"], "b": ["W / 2", "T / 3"] },
+        { "kind": "line", "a": ["-W / 2", "T * 2 / 3"], "b": ["W / 2", "T * 2 / 3"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", 0, "-H / 2"], "max": ["W / 2", "T", "H / 2"] }],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_AirTerminalTypeCommon.NominalWidth" },
+        { "name": "free_area", "label": { "ja": "有効開口率", "en": "Free area ratio" }, "ty": "real", "unit": "%", "ifc_property": "Pset_AirTerminalTypeCommon.EffectiveArea", "default": 50 }
+      ]
+    },
+    {
+      "id": "duct.chamber",
+      "name": { "ja": "チャンバー", "en": "Plenum box" },
+      "category": "duct-equipment",
+      "tags": ["chamber", "チャンバー", "プレナム"],
+      "ifc_class": "IfcDuctFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 600, "min": 200, "max": 3000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Depth" }, "default": 600, "min": 200, "max": 3000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 400, "min": 150, "max": 2000, "unit": "mm" },
+        { "name": "D", "label": { "ja": "接続径", "en": "Connection diameter" }, "default": 250, "min": 100, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "down", "origin": ["L / 2", 0, "-H / 2"], "direction": [0, 0, -1], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-W / 2"],
+            ["L", "-W / 2"],
+            ["L", "W / 2"],
+            [0, "W / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "circle", "c": ["L / 2", 0], "r": "D / 2" }
+      ],
+      "body3d": [{ "kind": "box", "min": [0, "-W / 2", "-H / 2"], "max": ["L", "W / 2", "H / 2"] }],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalWidth" },
+        { "name": "insulated", "label": { "ja": "保温", "en": "Insulated" }, "ty": "bool", "ifc_property": "Pset_DuctFittingOccurrence.Insulated", "default": true }
+      ]
+    }
+  ]
+}

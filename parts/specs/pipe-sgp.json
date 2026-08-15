@@ -1,0 +1,34 @@
+{
+  "$comment": "Carbon steel pipe for ordinary piping (JIS G 3452, 配管用炭素鋼鋼管 / SGP). Masses are for plain black pipe; galvanised adds roughly 5%.",
+  "specs": [
+    {
+      "id": "spec.pipe.sgp",
+      "name": { "ja": "配管用炭素鋼鋼管", "en": "Carbon steel pipe (SGP)" },
+      "system_kind": "water",
+      "material": { "ja": "炭素鋼", "en": "Carbon steel" },
+      "standard": "JIS G 3452",
+      "elbow_part": "pipe.elbow.90",
+      "branch_part": "pipe.tee",
+      "reducer_part": "pipe.reducer",
+      "min_bend_radius_ratio": 1.5,
+      "stock_length": 5500,
+      "joint": { "ja": "ねじ込み／溶接", "en": "Threaded or welded" },
+      "sizes": [
+        { "designation": "15A", "nominal": 15, "outside": 21.7, "thickness": 2.8, "mass_per_m": 1.31 },
+        { "designation": "20A", "nominal": 20, "outside": 27.2, "thickness": 2.8, "mass_per_m": 1.68 },
+        { "designation": "25A", "nominal": 25, "outside": 34.0, "thickness": 3.2, "mass_per_m": 2.43 },
+        { "designation": "32A", "nominal": 32, "outside": 42.7, "thickness": 3.5, "mass_per_m": 3.38 },
+        { "designation": "40A", "nominal": 40, "outside": 48.6, "thickness": 3.5, "mass_per_m": 3.89 },
+        { "designation": "50A", "nominal": 50, "outside": 60.5, "thickness": 3.8, "mass_per_m": 5.31 },
+        { "designation": "65A", "nominal": 65, "outside": 76.3, "thickness": 4.2, "mass_per_m": 7.47 },
+        { "designation": "80A", "nominal": 80, "outside": 89.1, "thickness": 4.2, "mass_per_m": 8.79 },
+        { "designation": "100A", "nominal": 100, "outside": 114.3, "thickness": 4.5, "mass_per_m": 12.2 },
+        { "designation": "125A", "nominal": 125, "outside": 139.8, "thickness": 4.5, "mass_per_m": 15.0 },
+        { "designation": "150A", "nominal": 150, "outside": 165.2, "thickness": 5.0, "mass_per_m": 19.8 },
+        { "designation": "200A", "nominal": 200, "outside": 216.3, "thickness": 5.8, "mass_per_m": 30.1 },
+        { "designation": "250A", "nominal": 250, "outside": 267.4, "thickness": 6.6, "mass_per_m": 42.4 },
+        { "designation": "300A", "nominal": 300, "outside": 318.5, "thickness": 6.9, "mass_per_m": 53.0 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "$comment": "Thin-wall steel conduit (JIS C 8305, 薄鋼電線管 / C type). Bend ratio follows the wiring rules' minimum of six times the inside diameter for conduit that will be pulled through.",
+  "specs": [
+    {
+      "id": "spec.conduit.steel.c",
+      "name": { "ja": "薄鋼電線管", "en": "Thin-wall steel conduit" },
+      "system_kind": "power",
+      "material": { "ja": "鋼", "en": "Steel" },
+      "standard": "JIS C 8305",
+      "elbow_part": "pipe.elbow.90",
+      "branch_part": "pipe.tee",
+      "reducer_part": "pipe.reducer",
+      "min_bend_radius_ratio": 6.0,
+      "stock_length": 3660,
+      "joint": { "ja": "カップリング", "en": "Coupling" },
+      "sizes": [
+        { "designation": "C19", "nominal": 19, "outside": 19.1, "thickness": 1.6, "mass_per_m": 0.69 },
+        { "designation": "C25", "nominal": 25, "outside": 25.4, "thickness": 1.6, "mass_per_m": 0.94 },
+        { "designation": "C31", "nominal": 31, "outside": 31.8, "thickness": 1.6, "mass_per_m": 1.19 },
+        { "designation": "C39", "nominal": 39, "outside": 38.1, "thickness": 1.6, "mass_per_m": 1.44 },
+        { "designation": "C51", "nominal": 51, "outside": 50.8, "thickness": 1.6, "mass_per_m": 1.94 },
+        { "designation": "C63", "nominal": 63, "outside": 63.5, "thickness": 1.6, "mass_per_m": 2.44 },
+        { "designation": "C75", "nominal": 75, "outside": 76.2, "thickness": 2.0, "mass_per_m": 3.66 }
+      ]
+    }
+  ]
+}
