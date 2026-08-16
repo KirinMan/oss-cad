@@ -34,8 +34,18 @@ od parts show duct.elbow.rect.90 --set W=600 # build one at a size
 od inspect drawing.dxf                       # what is in a drawing
 od check drawing.dxf --rules jp              # layer names, text heights, storeys
 od roundtrip drawing.dxf                     # does it survive a save?
-od convert drawing.dxf out.dxf
+
+od convert drawing.dxf drawing.odc           # save — keeps the whole document
+od convert drawing.odc exchange.dxf          # export — says what DXF cannot carry
 ```
+
+### Which extension to save as
+
+| | |
+|---|---|
+| **`.odc`** | The native container. Keeps everything: attributes with their schemas, storeys, grids, domain objects, and anything preserved from an earlier read. Use this for your own files. |
+| `.dxf` | For exchange. Cannot express schemas, storeys, grids or domain objects — `od convert` lists exactly what will be dropped before it writes. |
+| `.json` | The document model dumped verbatim. For debugging and for tools that would rather not learn a container. |
 
 For the web interface:
 
@@ -50,6 +60,7 @@ bun run dev      # API on :8787, front end on :5173
 |---|---|
 | **Document model** | Database, entities, symbol tables, extension data with schemas, transactions with real undo. Storeys and structural grids are first-class. |
 | **DXF** | Reader and writer written in-house, R12–R2018. Unknown entities and sections are preserved verbatim and written back. |
+| **`.odc` container** | The native format: a ZIP of separately-readable parts. Every kind of content declares what a reader that does not understand it must do, so an older build refuses a file it would damage rather than opening it and silently stripping it. |
 | **Part catalogue** | 65 parametric parts, 24 systems, 4 specifications with JIS size tables. Parametric rather than enumerated, so one definition covers every size — and none of it needs a manufacturer agreement. |
 | **CLI** | `od` — convert, inspect, check, roundtrip, parts. Human output by default, `--json` for machines. |
 | **API** | Hono on Bun. Transport over the CLI; holds no drawing logic. Uploaded drawings are deleted as soon as the report is produced. |

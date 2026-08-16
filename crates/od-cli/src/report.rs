@@ -4,8 +4,8 @@
 //! CI parses drifting apart is how "it passed locally" happens.
 
 use crate::check::{Finding, Severity};
+use crate::load::LoadOutcome;
 use od_core::Database;
-use od_io_dxf::ReadOutcome;
 use od_parts::{Catalog, Instance, Part};
 use serde::Serialize;
 use std::path::Path;
@@ -20,17 +20,19 @@ fn emit<T: Serialize>(value: &T) {
 #[derive(Serialize)]
 struct Summary<'a> {
     file: String,
+    format: &'static str,
     entities: usize,
     layers: usize,
     blocks: usize,
     preserved_entities: usize,
     preserved_sections: usize,
     unsupported_types: &'a [String],
+    unsupported_features: &'a [String],
     warnings: usize,
     extents_mm: [f64; 6],
 }
 
-fn summarise<'a>(db: &Database, outcome: &'a ReadOutcome, path: &Path) -> Summary<'a> {
+fn summarise<'a>(db: &Database, outcome: &'a LoadOutcome, path: &Path) -> Summary<'a> {
     let s = db.stats();
     let b = s.bounds;
     let extents = if b.is_empty() {
@@ -40,18 +42,20 @@ fn summarise<'a>(db: &Database, outcome: &'a ReadOutcome, path: &Path) -> Summar
     };
     Summary {
         file: path.display().to_string(),
+        format: outcome.format,
         entities: s.entities,
         layers: s.layers,
         blocks: s.blocks,
         preserved_entities: s.unsupported_entities,
         preserved_sections: s.preserved_blobs,
-        unsupported_types: &outcome.unsupported_types,
+        unsupported_types: &outcome.unsupported_entities,
+        unsupported_features: &outcome.unsupported_features,
         warnings: outcome.warnings.len(),
         extents_mm: extents,
     }
 }
 
-pub fn inspection(db: &Database, outcome: &ReadOutcome, path: &Path, json: bool) {
+pub fn inspection(db: &Database, outcome: &LoadOutcome, path: &Path, json: bool) {
     if json {
         #[derive(Serialize)]
         struct Detailed<'a> {
@@ -98,11 +102,17 @@ pub fn inspection(db: &Database, outcome: &ReadOutcome, path: &Path, json: bool)
         }
     }
 
-    if !outcome.unsupported_types.is_empty() {
+    if !outcome.unsupported_entities.is_empty() {
         println!(
             "\n  preserved verbatim ({} entities): {}",
             s.unsupported_entities,
-            outcome.unsupported_types.join(", ")
+            outcome.unsupported_entities.join(", ")
+        );
+    }
+    if !outcome.unsupported_features.is_empty() {
+        println!(
+            "  preserved from a newer build: {}",
+            outcome.unsupported_features.join(", ")
         );
     }
     if s.preserved_blobs > 0 {
@@ -119,17 +129,27 @@ pub fn inspection(db: &Database, outcome: &ReadOutcome, path: &Path, json: bool)
     }
 }
 
-pub fn conversion(db: &Database, outcome: &ReadOutcome, input: &Path, output: &Path, json: bool) {
+pub fn conversion(
+    db: &Database,
+    outcome: &LoadOutcome,
+    input: &Path,
+    output: &Path,
+    losses: &[String],
+    json: bool,
+) {
     if json {
         #[derive(Serialize)]
         struct Result<'a> {
             #[serde(flatten)]
             summary: Summary<'a>,
             output: String,
+            /// What the target format cannot carry. Empty for `.odc`.
+            losses: &'a [String],
         }
         emit(&Result {
             summary: summarise(db, outcome, input),
             output: output.display().to_string(),
+            losses,
         });
         return;
     }
@@ -146,8 +166,15 @@ pub fn conversion(db: &Database, outcome: &ReadOutcome, input: &Path, output: &P
         println!(
             "  {} entity(ies) preserved verbatim: {}",
             s.unsupported_entities,
-            outcome.unsupported_types.join(", ")
+            outcome.unsupported_entities.join(", ")
         );
+    }
+    if !losses.is_empty() {
+        println!("\n  this format cannot carry:");
+        for loss in losses {
+            println!("    {loss}");
+        }
+        println!("    (save as .odc to keep them)");
     }
     if !outcome.warnings.is_empty() {
         println!(
@@ -192,8 +219,9 @@ pub fn findings(findings: &[Finding], path: &Path, json: bool) {
 pub fn roundtrip(
     first: &Database,
     second: &Database,
-    outcome: &ReadOutcome,
+    warnings_on_reread: usize,
     path: &Path,
+    format: &str,
     json: bool,
 ) -> bool {
     let (a, b) = (first.stats(), second.stats());
@@ -215,8 +243,9 @@ pub fn roundtrip(
 
     if json {
         #[derive(Serialize)]
-        struct Report {
+        struct Report<'a> {
             file: String,
+            format: &'a str,
             identical: bool,
             entities_before: usize,
             entities_after: usize,
@@ -227,18 +256,19 @@ pub fn roundtrip(
         }
         emit(&Report {
             file: path.display().to_string(),
+            format,
             identical: !differs,
             entities_before: a.entities,
             entities_after: b.entities,
             layers_before: a.layers,
             layers_after: b.layers,
             max_extent_shift_mm: extent_shift,
-            warnings_on_reread: outcome.warnings.len(),
+            warnings_on_reread,
         });
         return differs;
     }
 
-    println!("{}", path.display());
+    println!("{} (via {format})", path.display());
     println!("  entities  {} → {}", a.entities, b.entities);
     println!("  layers    {} → {}", a.layers, b.layers);
     println!("  extents   shifted by {extent_shift:.9} mm");

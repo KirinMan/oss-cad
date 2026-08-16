@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import type { CheckReport, Inspection } from '@opendraft/shared';
-import { checkDrawing, inspectDrawing } from '../api.ts';
+import { checkDrawing, inspectDrawing, saveDrawing, type SaveFormat } from '../api.ts';
 
 /**
- * Upload a DXF, see what is in it, and check it against a rule set.
+ * Open a drawing, see what is in it, check it, and save it.
  *
- * This is the Phase 1 promise in its smallest useful form: anyone can open a
- * drawing without installing anything. Files are not stored — the service
- * deletes each upload as soon as the report is produced.
+ * Anyone can open a drawing without installing anything, and files are not
+ * stored — the service deletes each upload as soon as the report is produced.
+ *
+ * Saving defaults to `.odc` because it is the only format that keeps the whole
+ * document. Choosing DXF is choosing an exchange copy, and the UI says what
+ * that costs before the file is downloaded rather than after.
  */
 export function DrawingPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -21,6 +24,21 @@ export function DrawingPage() {
         checkDrawing(f, rules),
       ]);
       return { inspection, check };
+    },
+  });
+
+  const save = useMutation({
+    mutationFn: async ({ file: f, to }: { file: File; to: SaveFormat }) => {
+      const saved = await saveDrawing(f, to);
+      // Hand the bytes to the browser. Revoking the URL immediately after the
+      // click would race the download in some browsers, so it is deferred.
+      const url = URL.createObjectURL(saved.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = saved.filename;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return saved;
     },
   });
 
@@ -44,11 +62,11 @@ export function DrawingPage() {
         <label className="cursor-pointer rounded border border-rule bg-paper-raised px-4 py-2 text-sm transition-colors hover:border-accent">
           <input
             type="file"
-            accept=".dxf"
+            accept=".dxf,.odc"
             className="sr-only"
             onChange={(e) => onSelect(e.target.files?.[0] ?? null)}
           />
-          DXF を選択
+          図面を選択（DXF / ODC）
         </label>
         {file && (
           <span className="text-sm text-ink-muted">
@@ -81,13 +99,85 @@ export function DrawingPage() {
         </p>
       )}
 
-      {analysis.data && (
+      {analysis.data && file && (
         <div className="space-y-6">
+          <SaveBar
+            busy={save.isPending}
+            result={save.data ?? null}
+            error={save.error}
+            onSave={(to) => save.mutate({ file, to })}
+          />
           <InspectionView data={analysis.data.inspection} />
           <CheckView data={analysis.data.check} />
         </div>
       )}
     </div>
+  );
+}
+
+function SaveBar({
+  busy,
+  result,
+  error,
+  onSave,
+}: {
+  busy: boolean;
+  result: { filename: string; losses: string[] } | null;
+  error: Error | null;
+  onSave: (to: SaveFormat) => void;
+}) {
+  return (
+    <section className="space-y-2 rounded border border-rule bg-paper-raised px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-sm font-medium">保存</span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onSave('odc')}
+          className="rounded bg-accent px-3 py-1.5 text-sm text-paper-raised disabled:opacity-50"
+        >
+          .odc で保存
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onSave('dxf')}
+          className="rounded border border-rule px-3 py-1.5 text-sm disabled:opacity-50"
+        >
+          DXF で書き出し
+        </button>
+        <span className="text-xs text-ink-muted">
+          .odc は属性・スキーマ・階・通り芯まで保持します
+        </span>
+      </div>
+
+      {busy && <p className="text-sm text-ink-muted">変換中…</p>}
+
+      {error && (
+        <p className="text-sm text-sys-fire">保存できませんでした: {error.message}</p>
+      )}
+
+      {result && (
+        <div className="text-sm">
+          <p>
+            <span className="font-mono">{result.filename}</span> をダウンロードしました。
+          </p>
+          {result.losses.length > 0 && (
+            <div className="mt-1 rounded border border-sys-drainage/40 bg-sys-drainage/10 px-3 py-2">
+              <p className="font-medium">この形式では保持できなかったもの</p>
+              <ul className="mt-1 list-disc pl-5">
+                {result.losses.map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs text-ink-muted">
+                これらを残すには .odc で保存してください。
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -105,7 +195,7 @@ function InspectionView({ data }: { data: Inspection }) {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="エンティティ" value={data.entities.toLocaleString()} />
         <Stat label="レイヤ" value={String(data.layers)} />
-        <Stat label="ブロック" value={String(data.blocks)} />
+        <Stat label="形式" value={data.format.toUpperCase()} />
         <Stat
           label="図面範囲"
           value={
@@ -115,6 +205,15 @@ function InspectionView({ data }: { data: Inspection }) {
           }
         />
       </div>
+
+      {data.unsupported_features.length > 0 && (
+        <p className="rounded border border-rule bg-paper-raised px-4 py-3 text-sm">
+          この図面には、より新しいバージョンが書き込んだ内容（
+          {data.unsupported_features.join('、')}
+          ）が含まれています。編集はできませんが、
+          <strong className="font-medium">保存しても失われません</strong>。
+        </p>
+      )}
 
       {(data.preserved_entities > 0 || data.preserved_sections > 0) && (
         <p className="rounded border border-rule bg-paper-raised px-4 py-3 text-sm">
