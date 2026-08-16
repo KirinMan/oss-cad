@@ -15,8 +15,10 @@ crates/          Rust: the engine
   od-core        The document model: Database, entities, tables, transactions.
   od-io-dxf      DXF reader and writer, written in-house.
   od-io-odc      The native .odc container, and its compatibility contract.
+  od-index       Bulk-loaded R-tree over drawing bounds: query, nearest, planar.
+  od-io-svg      Renders a drawing to SVG through the spatial index.
   od-parts       Parametric part library + the bundled catalogue loader.
-  od-cli         `od` — convert, inspect, check, roundtrip, parts.
+  od-cli         `od` — convert, inspect, check, roundtrip, render, query, parts.
 parts/           The catalogue itself: systems, specs, parts (JSON).
 apps/api         Hono on Bun. Transport over `od`; holds no drawing logic.
 apps/front       Vite + React 19 + TanStack Router/Query + Tailwind v4.
@@ -84,6 +86,12 @@ causes damage that is hard to see and hard to undo.
 7. **Coordinates are `f64` millimetres.** No unit conversion in storage; convert
    at the input and output edges only.
 
+8. **Derived data does not live in `Database`.** The spatial index is
+   rebuildable from the document and must never be a field on it — a document
+   loaded with a stale index attached is a bug that is very hard to see, because
+   the drawing is right and only the answers about it are wrong. The same logic
+   applies to anything else computed from the model rather than part of it.
+
 ## Conventions
 
 - **Rust**: `cargo clippy` must be clean. `unwrap`/`expect`/`panic` are denied in
@@ -95,6 +103,9 @@ causes damage that is hard to see and hard to undo.
 - **Comments** explain *why*, not *what*. If a constant has a reason (a JIS
   standard, a DXF quirk, a numerical limit), the reason belongs next to it.
 - **UI copy is Japanese**; identifiers, comments and commit messages are English.
+- **A drawing is untrusted content.** Rendered SVG is shown in an `<img>`, never
+  inlined into the page — an uploaded file's text becomes a script vector the
+  moment it is inlined, and an image element runs nothing.
 
 ## Adding to the catalogue
 

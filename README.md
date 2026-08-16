@@ -3,10 +3,12 @@
 An open-source CAD platform for building services — a general drawing core with
 a mechanical, electrical and plumbing (MEP) domain on top.
 
-**Status: Phase 0.** The engine, the DXF path and the part catalogue work. There
-is no drawing canvas yet; that is Phase 2. What exists today is already useful on
+**Status: Phase 0, reaching into Phase 1.** The engine, the DXF path, the native
+`.odc` container and the part catalogue work, and a drawing can now be *seen* —
+rendered to SVG through a spatial index — in the browser. There is no editing
+canvas yet; that is the rest of Phase 1. What exists today is already useful on
 its own: batch conversion, drawing inspection, standards checking, and a
-parametric part library you can browse in a browser.
+parametric part library you can browse and view drawings in, in a browser.
 
 ## Why
 
@@ -37,6 +39,10 @@ od roundtrip drawing.dxf                     # does it survive a save?
 
 od convert drawing.dxf drawing.odc           # save — keeps the whole document
 od convert drawing.odc exchange.dxf          # export — says what DXF cannot carry
+
+od render drawing.dxf plan.svg --layers M-DUCT-SA,M-PIPE-CW
+od query drawing.dxf --window 0,0,10000,8000 # what is in this area
+od query drawing.dxf --near 4200,3100 --count 5
 ```
 
 ### Which extension to save as
@@ -61,13 +67,15 @@ bun run dev      # API on :8787, front end on :5173
 | **Document model** | Database, entities, symbol tables, extension data with schemas, transactions with real undo. Storeys and structural grids are first-class. |
 | **DXF** | Reader and writer written in-house, R12–R2018. Unknown entities and sections are preserved verbatim and written back. |
 | **`.odc` container** | The native format: a ZIP of separately-readable parts. Every kind of content declares what a reader that does not understand it must do, so an older build refuses a file it would damage rather than opening it and silently stripping it. |
+| **Spatial index** | A bulk-loaded R-tree over drawing bounds. One structure answers what is on screen, what is under the cursor, and what is nearest a point — the basis for view culling, picking, snapping and clash detection alike. |
+| **SVG renderer** | Renders a drawing through the spatial index: colour (full ACI ramp), lineweight, ByLayer/ByBlock resolution, block expansion, ellipses, splines, hatches and preserved-entity proxies. No GPU, no build step — how a drawing becomes visible before the editing canvas exists. |
 | **Part catalogue** | 65 parametric parts, 24 systems, 4 specifications with JIS size tables. Parametric rather than enumerated, so one definition covers every size — and none of it needs a manufacturer agreement. |
-| **CLI** | `od` — convert, inspect, check, roundtrip, parts. Human output by default, `--json` for machines. |
+| **CLI** | `od` — convert, inspect, check, roundtrip, render, query, parts. Human output by default, `--json` for machines. |
 | **API** | Hono on Bun. Transport over the CLI; holds no drawing logic. Uploaded drawings are deleted as soon as the report is produced. |
-| **Front end** | Vite + React 19 + TanStack Router/Query + Tailwind v4. Part browser with live parametric preview, and a DXF inspector. |
+| **Front end** | Vite + React 19 + TanStack Router/Query + Tailwind v4. Part browser with live parametric preview, and a drawing viewer with pan/zoom and per-layer visibility. |
 
-Not here yet: a drawing canvas, 3D, constraints, IFC, SXF, DWG. The plan and the
-order are in [docs/06-roadmap.md](docs/06-roadmap.md).
+Not here yet: *editing* a drawing, 3D, constraints, IFC, SXF, DWG. The plan and
+the order are in [docs/06-roadmap.md](docs/06-roadmap.md).
 
 ## Design documents
 
