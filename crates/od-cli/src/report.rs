@@ -494,3 +494,98 @@ pub fn specs(catalog: &Catalog, id: Option<&str>, json: bool) {
         }
     }
 }
+
+pub fn render(db: &Database, input: &Path, output: &Path, bytes: usize, json: bool) {
+    let s = db.stats();
+    if json {
+        #[derive(Serialize)]
+        struct Report {
+            input: String,
+            output: String,
+            entities: usize,
+            svg_bytes: usize,
+        }
+        emit(&Report {
+            input: input.display().to_string(),
+            output: output.display().to_string(),
+            entities: s.entities,
+            svg_bytes: bytes,
+        });
+        return;
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "an SVG report is well under a terabyte; the display value only needs to be close"
+    )]
+    let kb = bytes as f64 / 1024.0;
+    println!(
+        "{} → {}  ({} entities, {kb:.1} KB)",
+        input.display(),
+        output.display(),
+        s.entities,
+    );
+}
+
+/// Reports the result of a spatial query.
+///
+/// The layer and type of each hit, not just its id: an id alone tells the
+/// reader nothing about whether the index found what they meant.
+pub fn query(db: &Database, found: &[od_core::ObjectId], indexed: usize, json: bool) {
+    #[derive(Serialize)]
+    struct Hit {
+        id: String,
+        kind: String,
+        layer: String,
+        bounds_mm: [f64; 6],
+    }
+
+    let hits: Vec<Hit> = found
+        .iter()
+        .filter_map(|id| {
+            let entity = db.entity(*id)?;
+            let b = db.entity_bounds(*id);
+            Some(Hit {
+                id: id.to_string(),
+                kind: entity.geom.type_name().to_owned(),
+                layer: db
+                    .tables
+                    .layers
+                    .get(entity.layer)
+                    .map_or_else(|| "?".to_owned(), |l| l.name.clone()),
+                bounds_mm: if b.is_empty() {
+                    [0.0; 6]
+                } else {
+                    [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z]
+                },
+            })
+        })
+        .collect();
+
+    if json {
+        #[derive(Serialize)]
+        struct Report<'a> {
+            matched: usize,
+            indexed: usize,
+            hits: &'a [Hit],
+        }
+        emit(&Report {
+            matched: hits.len(),
+            indexed,
+            hits: &hits,
+        });
+        return;
+    }
+
+    if hits.is_empty() {
+        println!("nothing found ({indexed} entities indexed)");
+        return;
+    }
+    println!("{:<14} {:<12} {:<20} position", "id", "type", "layer");
+    for hit in &hits {
+        println!(
+            "{:<14} {:<12} {:<20} ({:.0}, {:.0})",
+            hit.id, hit.kind, hit.layer, hit.bounds_mm[0], hit.bounds_mm[1]
+        );
+    }
+    println!("\n{} of {indexed} entities", hits.len());
+}
