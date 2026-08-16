@@ -264,8 +264,11 @@ dependencies = [
  "clap",
  "indexmap",
  "od-core",
+ "od-geom3d",
+ "od-index",
  "od-io-dxf",
  "od-io-odc",
+ "od-io-svg",
  "od-parts",
  "serde",
  "serde_json",
@@ -300,6 +303,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "od-index"
+version = "0.0.1"
+dependencies = [
+ "od-core",
+ "od-geom2d",
+ "od-geom3d",
+ "serde",
+]
+
+[[package]]
 name = "od-io-dxf"
 version = "0.0.1"
 dependencies = [
@@ -319,6 +332,16 @@ dependencies = [
  "thiserror",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "od-io-svg"
+version = "0.0.1"
+dependencies = [
+ "od-core",
+ "od-geom3d",
+ "od-index",
+ "od-io-dxf",
 ]
 
 [[package]]

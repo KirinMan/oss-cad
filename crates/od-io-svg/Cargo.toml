@@ -1,0 +1,20 @@
+[package]
+name = "od-io-svg"
+description = "Renders an OpenDraft drawing to SVG — how a drawing becomes visible before the wgpu canvas exists."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+od-core = { workspace = true }
+od-geom3d = { workspace = true }
+od-index = { workspace = true }
+
+[dev-dependencies]
+od-io-dxf = { workspace = true }
+
+[lints]
+workspace = true
