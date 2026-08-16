@@ -52,6 +52,13 @@ export const conversionSchema = drawingSummarySchema.extend({
   losses: z.array(z.string()).default([]),
 });
 
+export const renderSchema = z.object({
+  input: z.string(),
+  output: z.string(),
+  entities: z.number().int().nonnegative(),
+  svg_bytes: z.number().int().nonnegative(),
+});
+
 export const severitySchema = z.enum(['error', 'warning', 'info']);
 
 export const findingSchema = z.object({
@@ -82,6 +89,7 @@ export type Extents = z.infer<typeof extentsSchema>;
 export type DrawingSummary = z.infer<typeof drawingSummarySchema>;
 export type Inspection = z.infer<typeof inspectionSchema>;
 export type Conversion = z.infer<typeof conversionSchema>;
+export type RenderReport = z.infer<typeof renderSchema>;
 export type Severity = z.infer<typeof severitySchema>;
 export type Finding = z.infer<typeof findingSchema>;
 export type CheckReport = z.infer<typeof checkReportSchema>;

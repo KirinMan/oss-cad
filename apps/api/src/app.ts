@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   checkReportSchema,
   conversionSchema,
+  renderSchema,
   inspectionSchema,
   partDetailSchema,
   partSummarySchema,
@@ -142,6 +143,32 @@ export function createApp() {
       const rules = c.req.query('rules') === 'jp' ? 'jp' : 'basic';
       const report = await od(checkReportSchema, ['check', path, '--rules', rules]);
       return c.json(report);
+    }),
+  );
+
+  app.post('/api/drawings/render', (c) =>
+    withUpload(c, async (path) => {
+      const out = `${path}.svg`;
+      const args = ['render', path, out];
+      if (c.req.query('dark') === '1') args.push('--dark');
+      const layers = c.req.query('layers');
+      if (layers) args.push('--layers', layers);
+      const window = c.req.query('window');
+      if (window) args.push('--window', window);
+
+      const report = await od(renderSchema, args);
+      const svg = await Bun.file(out).text();
+      await Bun.file(out).delete();
+
+      return new Response(svg, {
+        headers: {
+          // `image/svg+xml` is deliberate: the client displays this in an
+          // <img>, where scripts do not run. A drawing is someone else's file,
+          // and inlining it into the page would make its text a script vector.
+          'content-type': 'image/svg+xml; charset=utf-8',
+          'x-opendraft-entities': String(report.entities),
+        },
+      });
     }),
   );
 

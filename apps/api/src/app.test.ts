@@ -214,6 +214,44 @@ describe.if(hasEngine)('drawings', () => {
     expect(body.format).toBe('odc');
   });
 
+  test('renders to SVG for display', async () => {
+    const res = await app.request('/api/drawings/render', {
+      method: 'POST',
+      body: upload(),
+    });
+    expect(res.status).toBe(200);
+    // The content type matters: the client shows this in an <img>, where
+    // scripts inside someone else's drawing cannot run.
+    expect(res.headers.get('content-type')).toContain('image/svg+xml');
+    expect(res.headers.get('x-opendraft-entities')).toBe('2');
+
+    const svg = await res.text();
+    expect(svg.startsWith('<svg')).toBe(true);
+    expect(svg).toContain('<line');
+    expect(svg).toContain('<circle');
+  });
+
+  test('rendering honours the layer filter and the dark canvas', async () => {
+    const filtered = await app.request(
+      '/api/drawings/render?layers=' + encodeURIComponent('M-DUCT-SA'),
+      { method: 'POST', body: upload() },
+    );
+    expect((await filtered.text()).match(/<line/g)?.length).toBe(1);
+
+    const empty = await app.request('/api/drawings/render?layers=NOT-A-LAYER', {
+      method: 'POST',
+      body: upload(),
+    });
+    const svg = await empty.text();
+    expect(svg).not.toContain('<line');
+
+    const dark = await app.request('/api/drawings/render?dark=1', {
+      method: 'POST',
+      body: upload(),
+    });
+    expect(await dark.text()).toContain('#141d26');
+  });
+
   test('an unknown target format is refused', async () => {
     const res = await app.request('/api/drawings/convert?to=rvt', {
       method: 'POST',
