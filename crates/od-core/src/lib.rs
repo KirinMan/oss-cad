@@ -42,8 +42,8 @@ pub mod transaction;
 pub mod xdata;
 
 pub use database::{
-    Database, DbStats, Dictionary, GeoRef, HeaderVars, MODEL_SPACE, Object, ObjectKind,
-    PAPER_SPACE, PreservedBlob, Units,
+    Database, DatabaseSnapshot, DbStats, Dictionary, GeoRef, HeaderVars, MODEL_SPACE, Object,
+    ObjectKind, PAPER_SPACE, PreservedBlob, Units,
 };
 pub use entity::{
     AttributeValue, BlockRef, Entity, Geometry, HAlign, Hatch, HatchPattern, MTextEntity,
