@@ -4,6 +4,7 @@ import { PartsPage } from './pages/PartsPage.tsx';
 import { PartPage } from './pages/PartPage.tsx';
 import { SystemsPage } from './pages/SystemsPage.tsx';
 import { DrawingPage } from './pages/DrawingPage.tsx';
+import { EditorPage } from './pages/EditorPage.tsx';
 
 const rootRoute = createRootRoute({ component: Layout });
 
@@ -31,11 +32,18 @@ const drawingRoute = createRoute({
   component: DrawingPage,
 });
 
+const editorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/editor',
+  component: EditorPage,
+});
+
 const routeTree = rootRoute.addChildren([
   partsRoute,
   partRoute,
   systemsRoute,
   drawingRoute,
+  editorRoute,
 ]);
 
 export const router = createRouter({
