@@ -52,12 +52,81 @@ export const conversionSchema = drawingSummarySchema.extend({
   losses: z.array(z.string()).default([]),
 });
 
+/**
+ * `[min_x, min_y, width, height]` of an SVG's `viewBox`, in drawing
+ * millimetres and already Y-flipped to match the SVG's own coordinate space.
+ * What an editing canvas needs to turn a click on the rendered image back
+ * into a drawing coordinate — the raw extents alone are not this, once
+ * padding and the degenerate-extent fallbacks `od-io-svg` applies are
+ * accounted for.
+ */
+export const viewBoxSchema = z.tuple([z.number(), z.number(), z.number(), z.number()]);
+export type ViewBox = z.infer<typeof viewBoxSchema>;
+
 export const renderSchema = z.object({
   input: z.string(),
   output: z.string(),
   entities: z.number().int().nonnegative(),
   svg_bytes: z.number().int().nonnegative(),
+  view_box: viewBoxSchema,
 });
+
+/** `od_geom3d::Point3` / `Vec3`'s own JSON shape — millimetres. */
+export const point3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() });
+export type Point3 = z.infer<typeof point3Schema>;
+
+/**
+ * An `od-core` `Command` (ADR-006, `docs/02-architecture.md`) — the same
+ * shape `od edit --command` and `Command::apply` read. Kept in one place so
+ * the front end cannot construct a command shape the engine does not
+ * recognise without a type error first.
+ */
+export const commandSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('add_line'),
+    layer: z.string(),
+    a: point3Schema,
+    b: point3Schema,
+  }),
+  z.object({
+    kind: z.literal('move_entities'),
+    ids: z.array(z.string()),
+    delta: point3Schema,
+  }),
+  z.object({
+    kind: z.literal('delete_entities'),
+    ids: z.array(z.string()),
+  }),
+]);
+export type Command = z.infer<typeof commandSchema>;
+
+/** `od --json edit`'s own report shape. */
+export const editReportSchema = z.object({
+  input: z.string(),
+  output: z.string(),
+  created: z.array(z.string()),
+  modified: z.array(z.string()),
+  deleted: z.array(z.string()),
+  render: z.object({ output: z.string(), view_box: viewBoxSchema }).nullable(),
+});
+export type EditReport = z.infer<typeof editReportSchema>;
+
+/**
+ * `POST /api/drawings/edit`'s response — a web-friendly envelope around the
+ * same outcome {@link editReportSchema} describes, carrying the updated
+ * document and a fresh render inline rather than by path, since there is no
+ * shared filesystem between the service and a browser.
+ */
+export const editResponseSchema = z.object({
+  created: z.array(z.string()),
+  modified: z.array(z.string()),
+  deleted: z.array(z.string()),
+  /** The updated document, base64-encoded. */
+  document: z.string(),
+  svg: z.string(),
+  view_box: viewBoxSchema.nullable(),
+});
+export type EditResponse = z.infer<typeof editResponseSchema>;
 
 export const severitySchema = z.enum(['error', 'warning', 'info']);
 

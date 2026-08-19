@@ -4,7 +4,9 @@ import { logger } from 'hono/logger';
 import { z } from 'zod';
 import {
   checkReportSchema,
+  commandSchema,
   conversionSchema,
+  editReportSchema,
   renderSchema,
   inspectionSchema,
   partDetailSchema,
@@ -167,10 +169,119 @@ export function createApp() {
           // and inlining it into the page would make its text a script vector.
           'content-type': 'image/svg+xml; charset=utf-8',
           'x-opendraft-entities': String(report.entities),
+          // What an editing canvas needs to map a click on the image back to
+          // a drawing coordinate — see od_io_svg::ViewBox.
+          'x-opendraft-viewbox': JSON.stringify(report.view_box),
         },
       });
     }),
   );
+
+  // Applies one edit command (ADR-006) and hands back the updated document
+  // alongside a fresh render, so an editing canvas gets everything it needs
+  // for its next frame in one round trip rather than an edit request followed
+  // by a separate render request. Like every other drawing endpoint, nothing
+  // outlives the request — the client holds the document between edits, not
+  // this service.
+  app.post('/api/drawings/edit', async (c) => {
+    const form = await c.req.formData().catch(() => null);
+    const file = form?.get('file');
+    const commandRaw = form?.get('command');
+    if (!(file instanceof File)) {
+      return c.json<ApiError>(
+        { error: 'no file', detail: 'send the drawing as multipart form field `file`' },
+        400,
+      );
+    }
+    if (typeof commandRaw !== 'string') {
+      return c.json<ApiError>(
+        {
+          error: 'no command',
+          detail: 'send the edit command as multipart form field `command`, as JSON',
+        },
+        400,
+      );
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return c.json<ApiError>(
+        {
+          error: 'file too large',
+          detail: `${file.size} bytes exceeds the ${MAX_UPLOAD_BYTES} byte limit`,
+        },
+        413,
+      );
+    }
+    const extension = READABLE.find((ext) => file.name.toLowerCase().endsWith(`.${ext}`));
+    if (!extension) {
+      return c.json<ApiError>(
+        {
+          error: 'unsupported format',
+          detail: `accepted: ${READABLE.map((e) => `.${e}`).join(', ')}`,
+        },
+        415,
+      );
+    }
+
+    let commandJson: unknown;
+    try {
+      commandJson = JSON.parse(commandRaw);
+    } catch {
+      return c.json<ApiError>(
+        { error: 'bad command', detail: '`command` is not valid JSON' },
+        400,
+      );
+    }
+    const command = commandSchema.safeParse(commandJson);
+    if (!command.success) {
+      return c.json<ApiError>(
+        {
+          error: 'bad command',
+          detail: command.error.issues
+            .map((i) => `${i.path.join('.')}: ${i.message}`)
+            .join('; '),
+        },
+        400,
+      );
+    }
+
+    const inPath = `${tmpRoot()}/edit-in-${crypto.randomUUID()}.${extension}`;
+    const outPath = `${tmpRoot()}/edit-out-${crypto.randomUUID()}.${extension}`;
+    const svgPath = `${outPath}.svg`;
+    await Bun.write(inPath, file);
+    try {
+      const report = await od(editReportSchema, [
+        'edit',
+        inPath,
+        outPath,
+        '--command',
+        JSON.stringify(command.data),
+        '--render',
+        svgPath,
+      ]);
+      const [document, svg] = await Promise.all([
+        Bun.file(outPath).arrayBuffer(),
+        Bun.file(svgPath).text(),
+      ]);
+      return c.json({
+        created: report.created,
+        modified: report.modified,
+        deleted: report.deleted,
+        document: Buffer.from(document).toString('base64'),
+        svg,
+        view_box: report.render?.view_box ?? null,
+      });
+    } finally {
+      await Promise.all(
+        [inPath, outPath, svgPath].map((p) =>
+          Bun.file(p)
+            .delete()
+            .catch(() => {
+              /* already gone */
+            }),
+        ),
+      );
+    }
+  });
 
   app.post('/api/drawings/convert', (c) =>
     withUpload(c, async (path, name) => {

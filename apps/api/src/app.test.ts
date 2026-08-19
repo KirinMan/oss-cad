@@ -259,4 +259,114 @@ describe.if(hasEngine)('drawings', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  test('rendering reports the view box a click needs to map back to a drawing coordinate', async () => {
+    const res = await app.request('/api/drawings/render', {
+      method: 'POST',
+      body: upload(),
+    });
+    const box = JSON.parse(res.headers.get('x-opendraft-viewbox') ?? 'null') as
+      [number, number, number, number] | null;
+    expect(box).not.toBeNull();
+    expect(box).toHaveLength(4);
+  });
+
+  test('editing draws a line and hands back the updated document and render', async () => {
+    const form = upload();
+    form.set(
+      'command',
+      JSON.stringify({
+        kind: 'add_line',
+        layer: 'A-TEST',
+        a: { x: 0, y: 0, z: 0 },
+        b: { x: 3600, y: 0, z: 0 },
+      }),
+    );
+    const res = await app.request('/api/drawings/edit', { method: 'POST', body: form });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      created: string[];
+      modified: string[];
+      deleted: string[];
+      document: string;
+      svg: string;
+      view_box: [number, number, number, number];
+    };
+    expect(body.created).toHaveLength(1);
+    expect(body.modified).toEqual([]);
+    expect(body.svg).toContain('<line');
+    expect(body.view_box).toHaveLength(4);
+
+    // The returned document really was edited: uploading it back shows 3
+    // entities now, not the 2 the fixture started with. It comes back in the
+    // same format it was uploaded in — DXF here, since `upload()` sends DXF.
+    const edited = new File([Buffer.from(body.document, 'base64')], 'edited.dxf');
+    const again = new FormData();
+    again.set('file', edited);
+    const inspected = await app.request('/api/drawings/inspect', {
+      method: 'POST',
+      body: again,
+    });
+    const inspection = (await inspected.json()) as { entities: number };
+    expect(inspection.entities).toBe(3);
+  });
+
+  test('moving and deleting the entity just created round-trips through undo-free edits', async () => {
+    const draw = upload();
+    draw.set(
+      'command',
+      JSON.stringify({
+        kind: 'add_line',
+        layer: '0',
+        a: { x: 0, y: 0, z: 0 },
+        b: { x: 1000, y: 0, z: 0 },
+      }),
+    );
+    const drawn = (await (
+      await app.request('/api/drawings/edit', { method: 'POST', body: draw })
+    ).json()) as { created: string[]; document: string };
+    const id = drawn.created[0];
+    if (id === undefined) throw new Error('expected a created id');
+
+    const moved = new FormData();
+    moved.set('file', new File([Buffer.from(drawn.document, 'base64')], 'a.dxf'));
+    moved.set(
+      'command',
+      JSON.stringify({ kind: 'move_entities', ids: [id], delta: { x: 0, y: 500, z: 0 } }),
+    );
+    const moveRes = await app.request('/api/drawings/edit', {
+      method: 'POST',
+      body: moved,
+    });
+    expect(moveRes.status).toBe(200);
+    const movedBody = (await moveRes.json()) as { modified: string[]; document: string };
+    expect(movedBody.modified).toEqual([id]);
+
+    const deleted = new FormData();
+    deleted.set('file', new File([Buffer.from(movedBody.document, 'base64')], 'b.dxf'));
+    deleted.set('command', JSON.stringify({ kind: 'delete_entities', ids: [id] }));
+    const deleteRes = await app.request('/api/drawings/edit', {
+      method: 'POST',
+      body: deleted,
+    });
+    expect(deleteRes.status).toBe(200);
+    const deletedBody = (await deleteRes.json()) as { deleted: string[] };
+    expect(deletedBody.deleted).toEqual([id]);
+  });
+
+  test('an edit naming a nonexistent entity fails as an engine error, not a crash', async () => {
+    const form = upload();
+    form.set('command', JSON.stringify({ kind: 'delete_entities', ids: ['0-9999'] }));
+    const res = await app.request('/api/drawings/edit', { method: 'POST', body: form });
+    expect(res.status).toBe(422);
+  });
+
+  test('a malformed command is rejected before it reaches the engine', async () => {
+    const form = upload();
+    form.set('command', JSON.stringify({ kind: 'frobnicate' }));
+    const res = await app.request('/api/drawings/edit', { method: 'POST', body: form });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('bad command');
+  });
 });
