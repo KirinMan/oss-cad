@@ -13,7 +13,7 @@
 
 use od_core::{ActorId, BlockRef, Color, Database, Entity, Geometry, GraphicStyle, Point3, Vec3};
 use od_geom3d::Aabb3;
-use od_io_svg::{Background, SvgOptions, to_svg};
+use od_io_svg::{Background, SvgOptions, to_svg, to_svg_with_view_box};
 
 fn drawing_with(geoms: Vec<(&str, Geometry)>) -> Database {
     let mut db = Database::new(ActorId::SYSTEM);
@@ -85,6 +85,32 @@ fn the_view_box_covers_the_drawing() {
     assert!(parts[2] >= 4000.0, "width {} is too small", parts[2]);
     assert!(parts[3] >= 2000.0, "height {} is too small", parts[3]);
     assert!(parts[0] <= 1000.0, "left edge misses the drawing");
+}
+
+#[test]
+fn to_svg_with_view_box_matches_the_string_it_wrote() {
+    let db = drawing_with(vec![("M-TEST", line(1000.0, 2000.0, 5000.0, 4000.0))]);
+    let (svg, view_box) = to_svg_with_view_box(&db, &SvgOptions::default());
+
+    let view = svg
+        .split("viewBox=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .expect("a viewBox");
+    let parts: Vec<f64> = view
+        .split_whitespace()
+        .map(|v| v.parse().expect("numeric"))
+        .collect();
+
+    assert_eq!(
+        parts,
+        [
+            view_box.min_x,
+            view_box.min_y,
+            view_box.width,
+            view_box.height
+        ]
+    );
 }
 
 #[test]
