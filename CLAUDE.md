@@ -18,7 +18,8 @@ crates/          Rust: the engine
   od-index       Bulk-loaded R-tree over drawing bounds: query, nearest, planar.
   od-io-svg      Renders a drawing to SVG through the spatial index.
   od-parts       Parametric part library + the bundled catalogue loader.
-  od-cli         `od` — convert, inspect, check, roundtrip, render, query, parts.
+  od-domain-mep  MEP domain: routes, connection graph, auto-fittings, take-off.
+  od-cli         `od` — convert, inspect, check, roundtrip, render, query, parts, mep.
 parts/           The catalogue itself: systems, specs, parts (JSON).
 apps/api         Hono on Bun. Transport over `od`; holds no drawing logic.
 apps/front       Vite + React 19 + TanStack Router/Query + Tailwind v4.
@@ -34,6 +35,7 @@ cargo test --workspace
 cargo clippy --workspace --all-targets    # must be warning-free
 cargo fmt --all
 cargo run -q -p od-cli -- parts list
+cargo run -q -p od-cli -- mep demo out.odc
 
 # TypeScript
 bun install
@@ -91,6 +93,16 @@ causes damage that is hard to see and hard to undo.
    loaded with a stale index attached is a bug that is very hard to see, because
    the drawing is right and only the answers about it are wrong. The same logic
    applies to anything else computed from the model rather than part of it.
+
+9. **A domain crate gets its own error type, never `od_core::DbError`.**
+   `Document::edit<F, T, E>` is generic over `E: From<DbError>`, so a domain's
+   `edit(name, |tx| ...)` closure can return its own `Result<T, DomainError>`
+   and still pick up core validation failures through `?`. Laundering a domain
+   error through `DbError` (or the reverse) would put a domain's vocabulary —
+   "unsupported bend angle", "no such spec" — inside the one crate that must
+   not know any domain exists. See `od-domain-mep::model::MepError` for the
+   pattern (`#[from]` for `DbError` and any other crate's error, plus the
+   domain's own variants).
 
 ## Conventions
 

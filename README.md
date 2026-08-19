@@ -3,12 +3,16 @@
 An open-source CAD platform for building services — a general drawing core with
 a mechanical, electrical and plumbing (MEP) domain on top.
 
-**Status: Phase 0, reaching into Phase 1.** The engine, the DXF path, the native
-`.odc` container and the part catalogue work, and a drawing can now be *seen* —
-rendered to SVG through a spatial index — in the browser. There is no editing
-canvas yet; that is the rest of Phase 1. What exists today is already useful on
-its own: batch conversion, drawing inspection, standards checking, and a
-parametric part library you can browse and view drawings in, in a browser.
+**Status: Phase 0, reaching into Phase 1 and 3.** The engine, the DXF path, the
+native `.odc` container and the part catalogue work, and a drawing can now be
+*seen* — rendered to SVG through a spatial index — in the browser. The MEP
+domain (Phase 3) can route a duct or pipe, auto-insert the fittings a bend
+needs, find unconnected ports, and take off quantities — all without an
+editing canvas, through `od mep`. There is no editing canvas yet; that is the
+rest of Phase 1. What exists today is already useful on its own: batch
+conversion, drawing inspection, standards checking, MEP routing and take-off,
+and a parametric part library you can browse and view drawings in, in a
+browser.
 
 ## Why
 
@@ -43,6 +47,10 @@ od convert drawing.odc exchange.dxf          # export — says what DXF cannot c
 od render drawing.dxf plan.svg --layers M-DUCT-SA,M-PIPE-CW
 od query drawing.dxf --window 0,0,10000,8000 # what is in this area
 od query drawing.dxf --near 4200,3100 --count 5
+
+od mep demo drawing.odc      # a fan, a routed duct, one auto-inserted elbow
+od mep takeoff drawing.odc   # routed length by system/spec, part counts
+od mep check drawing.odc     # unconnected ports and unresolvable parts
 ```
 
 ### Which extension to save as
@@ -70,7 +78,8 @@ bun run dev      # API on :8787, front end on :5173
 | **Spatial index** | A bulk-loaded R-tree over drawing bounds. One structure answers what is on screen, what is under the cursor, and what is nearest a point — the basis for view culling, picking, snapping and clash detection alike. |
 | **SVG renderer** | Renders a drawing through the spatial index: colour (full ACI ramp), lineweight, ByLayer/ByBlock resolution, block expansion, ellipses, splines, hatches and preserved-entity proxies. No GPU, no build step — how a drawing becomes visible before the editing canvas exists. |
 | **Part catalogue** | 65 parametric parts, 24 systems, 4 specifications with JIS size tables. Parametric rather than enumerated, so one definition covers every size — and none of it needs a manufacturer agreement. |
-| **CLI** | `od` — convert, inspect, check, roundtrip, render, query, parts. Human output by default, `--json` for machines. |
+| **MEP domain** | Routes are a centreline + profile + system; every view (single-line, double-line, the block reference a fitting is drawn as) is derived, never edited directly. A connection graph finds mated ports through the spatial index; drawing a route auto-inserts the 90° elbow a bend needs, choosing the one stocked part and mirroring it for either handedness. Take-off sums length by system/spec and counts parts by id. |
+| **CLI** | `od` — convert, inspect, check, roundtrip, render, query, parts, mep. Human output by default, `--json` for machines. |
 | **API** | Hono on Bun. Transport over the CLI; holds no drawing logic. Uploaded drawings are deleted as soon as the report is produced. |
 | **Front end** | Vite + React 19 + TanStack Router/Query + Tailwind v4. Part browser with live parametric preview, and a drawing viewer with pan/zoom and per-layer visibility. |
 
