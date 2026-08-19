@@ -118,8 +118,35 @@ impl<'db> Transaction<'db> {
         self.db
     }
 
+    /// Finds or creates a layer by name. Not undo-tracked, matching how a bulk
+    /// importer already creates layers directly on the `Database` (DXF's
+    /// reader does exactly this outside any transaction): a layer coming into
+    /// existence is additive and idempotent, not the kind of change a user
+    /// expects "undo" to reverse on its own.
+    pub fn ensure_layer(&mut self, name: &str) -> ObjectId {
+        self.db.ensure_layer(name)
+    }
+
+    /// Finds or creates a block definition by name. Not undo-tracked, for the
+    /// same reason as [`Transaction::ensure_layer`].
+    pub fn ensure_block(&mut self, name: &str) -> ObjectId {
+        self.db.ensure_block(name)
+    }
+
     pub fn add_entity(&mut self, entity: Entity) -> Result<ObjectId> {
         let id = self.db.insert_entity(entity)?;
+        self.changes.push(Change::Created { id });
+        Ok(id)
+    }
+
+    /// Adds a domain-defined object. See [`Database::insert_custom`].
+    pub fn add_custom(
+        &mut self,
+        owner: Option<ObjectId>,
+        type_id: impl Into<String>,
+        data: serde_json::Value,
+    ) -> Result<ObjectId> {
+        let id = self.db.insert_custom(owner, type_id, data)?;
         self.changes.push(Change::Created { id });
         Ok(id)
     }
@@ -280,14 +307,25 @@ impl Document {
 
     /// Convenience for the common shape: run a closure in a transaction,
     /// committing on success and rolling back on error.
-    pub fn edit<F, T>(&mut self, name: impl Into<String>, f: F) -> Result<T>
+    ///
+    /// Generic in the error type rather than fixed to [`DbError`], so a
+    /// domain crate built on `od-core` (`docs/03-data-model.md` §3.2) can use
+    /// its own error type here directly instead of laundering every failure
+    /// through `DbError` — which would mean either core naming domain
+    /// concepts, or a domain crate's real errors (an unknown catalogue
+    /// reference, a routing failure) getting silently reduced to something
+    /// core already knows how to spell. The only requirement is that the
+    /// caller's error type can represent *this* function's own failure mode
+    /// (commit validation), which `E: From<DbError>` states directly.
+    pub fn edit<F, T, E>(&mut self, name: impl Into<String>, f: F) -> std::result::Result<T, E>
     where
-        F: FnOnce(&mut Transaction<'_>) -> Result<T>,
+        F: FnOnce(&mut Transaction<'_>) -> std::result::Result<T, E>,
+        E: From<DbError>,
     {
         let mut tx = Transaction::new(&mut self.db, name);
         match f(&mut tx) {
             Ok(value) => {
-                tx.commit(&mut self.history)?;
+                tx.commit(&mut self.history).map_err(E::from)?;
                 Ok(value)
             }
             Err(e) => {
@@ -350,6 +388,23 @@ mod tests {
         d.edit("Draw line", |tx| tx.add_entity(e)).expect("commits");
         assert_eq!(d.db.entities().count(), 1);
         assert_eq!(d.history.undo_name(), Some("Draw line"));
+    }
+
+    #[test]
+    fn a_custom_object_is_undoable_like_any_other_change() {
+        let mut d = doc();
+        let id = d
+            .edit("Add thing", |tx| {
+                tx.add_custom(None, "org.example.thing", serde_json::json!({"n": 1}))
+            })
+            .expect("commits");
+        assert!(d.db.object(id).is_some());
+
+        d.undo().expect("undoes");
+        assert!(d.db.object(id).is_none());
+
+        d.redo().expect("redoes");
+        assert!(d.db.object(id).is_some());
     }
 
     #[test]
@@ -467,7 +522,7 @@ mod tests {
             Geometry::Point(Point3::ORIGIN),
         );
 
-        let result = d.edit("Two things", |tx| {
+        let result: Result<()> = d.edit("Two things", |tx| {
             tx.add_entity(good)?;
             tx.add_entity(bad)?;
             Ok(())
@@ -485,7 +540,8 @@ mod tests {
     #[test]
     fn an_empty_transaction_does_not_pollute_the_undo_stack() {
         let mut d = doc();
-        d.edit("Nothing", |_| Ok(())).expect("commits");
+        d.edit("Nothing", |_| Ok::<(), DbError>(()))
+            .expect("commits");
         assert!(!d.history.can_undo());
     }
 }
