@@ -143,6 +143,28 @@ enum MepCommand {
     /// Generates a small worked example: a fan, a routed duct, and the
     /// automatic elbow the route needs — proof the domain works end to end.
     Demo { output: PathBuf },
+    /// Draws a centreline route — auto-inserting the fittings any 90° bends
+    /// need — and saves the result.
+    Route {
+        input: PathBuf,
+        output: PathBuf,
+        /// A `SystemDef` id, e.g. `sys.air.supply`.
+        #[arg(long)]
+        system: String,
+        /// A `Spec` id, e.g. `spec.duct.galvanised.rect`.
+        #[arg(long)]
+        spec: String,
+        /// `rect:W,H` or `round:D`, in millimetres.
+        #[arg(long)]
+        profile: String,
+        /// Centreline vertices: `x,y,z;x,y,z;…`, at least two, all one Z.
+        #[arg(long, allow_hyphen_values = true)]
+        path: String,
+        /// Also render the result to SVG, so a caller gets both in one
+        /// invocation instead of a second full document load.
+        #[arg(long, value_name = "SVG")]
+        render: Option<PathBuf>,
+    },
     /// Reports routed lengths by system/spec and part counts by id.
     Takeoff { input: PathBuf },
     /// Reports unconnected ports and parts the catalogue could not resolve.
@@ -216,6 +238,24 @@ fn main() -> Result<()> {
         Command::Parts { command, library } => parts(&command, library.as_deref(), cli.json),
         Command::Mep { command } => match command {
             MepCommand::Demo { output } => mep::demo(&output, cli.json),
+            MepCommand::Route {
+                input,
+                output,
+                system,
+                spec,
+                profile,
+                path,
+                render,
+            } => mep::route(
+                &input,
+                &output,
+                &system,
+                &spec,
+                &profile,
+                &path,
+                render.as_deref(),
+                cli.json,
+            ),
             MepCommand::Takeoff { input } => mep::takeoff(&input, cli.json),
             MepCommand::Check { input } => mep::check(&input, cli.json),
         },
