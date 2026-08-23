@@ -92,6 +92,10 @@ fn try_translate(geom: &mut Geometry, delta: Vec3) -> bool {
             *b = *b + delta;
         }
         Geometry::Circle { center, .. } | Geometry::Arc { center, .. } => *center = *center + delta,
+        // Equipment and fittings are placed as block references
+        // (`docs/04-mep.md`), so moving one is the common case of moving a
+        // piece of MEP content, not a rare one.
+        Geometry::BlockRef(block_ref) => block_ref.position = block_ref.position + delta,
         _ => return false,
     }
     true
@@ -206,6 +210,45 @@ mod tests {
             },
         );
         assert!(matches!(result, Err(DbError::UnsupportedEdit { .. })));
+    }
+
+    #[test]
+    fn moving_a_block_reference_translates_its_position() {
+        use crate::entity::BlockRef;
+
+        let mut d = doc();
+        let layer = d.db.ensure_layer("0");
+        let space = d.db.model_space();
+        let block = d.db.ensure_block("hvac.fan.sirocco");
+        let id =
+            d.db.insert_entity(Entity::new(
+                layer,
+                space,
+                Geometry::BlockRef(Box::new(BlockRef {
+                    block,
+                    position: Point3::new(1000.0, 2000.0, 0.0),
+                    scale: Vec3::new(1.0, 1.0, 1.0),
+                    rotation: 0.0,
+                    attributes: vec![],
+                    array: (1, 1),
+                    array_spacing: (0.0, 0.0),
+                })),
+            ))
+            .expect("inserts");
+
+        d.execute(
+            "Move",
+            &Command::MoveEntities {
+                ids: vec![id],
+                delta: Vec3::new(500.0, -500.0, 0.0),
+            },
+        )
+        .expect("commits");
+
+        let Geometry::BlockRef(block_ref) = &d.db.entity(id).expect("exists").geom else {
+            panic!("still a block reference");
+        };
+        assert_eq!(block_ref.position, Point3::new(1500.0, 1500.0, 0.0));
     }
 
     #[test]
