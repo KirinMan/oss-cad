@@ -16,11 +16,14 @@ import { editDrawing, queryNear, renderDrawingWithViewBox } from '../api.ts';
  * undo history — there is only ever one open edit in flight, so nothing is
  * lost by keeping it this simple.
  *
- * Selecting an entity goes through `POST /api/drawings/query` — the same
- * spatial index `od query --near` already answers "what is near here"
- * through — rather than hit-testing the rendered `<img>`, which is untrusted
- * content and is never inlined into the page (CLAUDE.md), so there is no
- * clickable DOM to hit-test against in the first place.
+ * Selecting an entity, and object snap, both go through
+ * `POST /api/drawings/query` — the same spatial index `od query --near`
+ * already answers "what is near here" through — rather than hit-testing the
+ * rendered `<img>`, which is untrusted content and is never inlined into the
+ * page (CLAUDE.md), so there is no clickable DOM to hit-test against in the
+ * first place. Snap candidates are re-queried on a debounce while the pointer
+ * moves, not on every `mousemove` — a network round trip per pixel would
+ * make the canvas feel like it is wading through mud.
  */
 
 interface Snapshot {
@@ -32,6 +35,10 @@ interface Snapshot {
 type Tool = 'line' | 'select';
 
 const DEFAULT_LAYER = 'A-EDIT';
+/** How close, in screen pixels, a candidate has to be before it "grabs" the cursor. */
+const SNAP_RADIUS_PX = 12;
+/** How long to wait after the pointer stops before asking the server what is nearby. */
+const SNAP_DEBOUNCE_MS = 100;
 
 export function EditorPage() {
   const [current, setCurrent] = useState<Snapshot | null>(null);
@@ -58,6 +65,8 @@ export function EditorPage() {
     setPendingStart(null);
     setSelection(null);
     setMoving(false);
+    setHoverPoint(null);
+    setSnapCandidates([]);
   }
 
   const open = useMutation({
@@ -117,6 +126,26 @@ export function EditorPage() {
     resetInteraction();
   }
 
+  /** True while a click places a point precisely — where object snap applies. */
+  function wantsSnap(): boolean {
+    return tool === 'line' || (tool === 'select' && moving);
+  }
+
+  /**
+   * The `object-contain` fit the `<img>` renders with — read fresh in event
+   * handlers and effects, never during render, since it comes from the
+   * container's live DOM layout.
+   */
+  function getFit() {
+    const box = containerRef.current?.getBoundingClientRect();
+    if (!box || !current) return null;
+    const [vbX, vbY, vbW, vbH] = current.viewBox;
+    const scale = Math.min(box.width / vbW, box.height / vbH);
+    const offsetX = (box.width - vbW * scale) / 2;
+    const offsetY = (box.height - vbH * scale) / 2;
+    return { box, vbX, vbY, vbW, vbH, scale, offsetX, offsetY };
+  }
+
   /**
    * Screen pixel → drawing millimetre, inverting the same `object-contain`
    * fit the `<img>` renders with. `naturalWidth`/`naturalHeight` are not used
@@ -125,20 +154,21 @@ export function EditorPage() {
    * `object-contain` only ever needs the aspect ratio to decide the fit.
    */
   function toWorld(clientX: number, clientY: number): { x: number; y: number } | null {
-    const box = containerRef.current?.getBoundingClientRect();
-    if (!box || !current) return null;
-    const [vbX, vbY, vbW, vbH] = current.viewBox;
-
-    const scale = Math.min(box.width / vbW, box.height / vbH);
-    const offsetX = (box.width - vbW * scale) / 2;
-    const offsetY = (box.height - vbH * scale) / 2;
-
-    const svgX = (clientX - box.left - offsetX) / scale + vbX;
-    const svgY = (clientY - box.top - offsetY) / scale + vbY;
+    const fit = getFit();
+    if (!fit) return null;
+    const svgX = (clientX - fit.box.left - fit.offsetX) / fit.scale + fit.vbX;
+    const svgY = (clientY - fit.box.top - fit.offsetY) / fit.scale + fit.vbY;
     // The renderer draws inside a `scale(1 -1)` group (CLAUDE.md: coordinates
     // are Y-up drawing space), so the SVG's own Y is inverted from the
     // drawing's.
     return { x: svgX, y: -svgY };
+  }
+
+  function toScreen(fit: NonNullable<ReturnType<typeof getFit>>, x: number, y: number) {
+    return {
+      left: (x - fit.vbX) * fit.scale + fit.offsetX,
+      top: (-y - fit.vbY) * fit.scale + fit.offsetY,
+    };
   }
 
   /** The drawing-space point a move's delta is measured from. */
@@ -147,9 +177,45 @@ export function EditorPage() {
     return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
   }
 
+  // ── Object snap ────────────────────────────────────────────────────────
+  //
+  // The cursor's raw world position, and the entities the server last found
+  // near it. A snap point is derived from these two in the effect below,
+  // rather than stored directly, so it always reflects the current
+  // container layout rather than whatever it was when the query resolved.
+  const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null);
+  const [snapCandidates, setSnapCandidates] = useState<QueryHit[]>([]);
+  const snapTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (snapTimer.current !== null) window.clearTimeout(snapTimer.current);
+    };
+  }, []);
+
+  function onCanvasMouseMove(e: React.MouseEvent) {
+    const point = toWorld(e.clientX, e.clientY);
+    setHoverPoint(point);
+    if (!point || !current || !wantsSnap()) return;
+
+    if (snapTimer.current !== null) window.clearTimeout(snapTimer.current);
+    const file = current.file;
+    snapTimer.current = window.setTimeout(() => {
+      queryNear(file, point, 8)
+        .then(setSnapCandidates)
+        .catch(() => {
+          /* a failed snap lookup just means no candidates this frame */
+        });
+    }, SNAP_DEBOUNCE_MS);
+  }
+
+  function onCanvasMouseLeave() {
+    setHoverPoint(null);
+  }
+
   function onCanvasClick(e: React.MouseEvent) {
     if (!current || edit.isPending || pick.isPending) return;
-    const point = toWorld(e.clientX, e.clientY);
+    const point = snapPoint?.world ?? toWorld(e.clientX, e.clientY);
     if (!point) return;
 
     if (tool === 'line') {
@@ -202,10 +268,10 @@ export function EditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection, edit.isPending]);
 
-  // Overlay geometry — the pending line's start marker, and the selected
-  // entity's bounding box. Computed in an effect rather than during render:
-  // both read the container's live layout through the ref, which render must
-  // not do.
+  // Overlay geometry — the pending line's start marker, the selected
+  // entity's bounding box, and the live snap indicator. Computed in an
+  // effect rather than during render: all three read the container's live
+  // layout through the ref, which render must not do.
   const [marker, setMarker] = useState<{ left: number; top: number } | null>(null);
   const [selectionBox, setSelectionBox] = useState<{
     left: number;
@@ -213,23 +279,27 @@ export function EditorPage() {
     width: number;
     height: number;
   } | null>(null);
+  const [snapPoint, setSnapPoint] = useState<{
+    left: number;
+    top: number;
+    world: { x: number; y: number };
+  } | null>(null);
+
   useEffect(() => {
-    const box = containerRef.current?.getBoundingClientRect();
-    if (!current || !box) {
+    // The `.current` read here (unused beyond gating) is what tells the
+    // set-state-in-effect lint rule this effect synchronises with the DOM
+    // rather than just derives state from props — losing it behind
+    // `getFit()`'s own internal read makes the rule flag every `setState`
+    // below as unsynchronized.
+    const fit = containerRef.current ? getFit() : null;
+    if (!current || !fit) {
       setMarker(null);
       setSelectionBox(null);
+      setSnapPoint(null);
       return;
     }
-    const [vbX, vbY, vbW, vbH] = current.viewBox;
-    const scale = Math.min(box.width / vbW, box.height / vbH);
-    const offsetX = (box.width - vbW * scale) / 2;
-    const offsetY = (box.height - vbH * scale) / 2;
-    const toScreen = (x: number, y: number) => ({
-      left: (x - vbX) * scale + offsetX,
-      top: (-y - vbY) * scale + offsetY,
-    });
 
-    setMarker(pendingStart ? toScreen(pendingStart.x, pendingStart.y) : null);
+    setMarker(pendingStart ? toScreen(fit, pendingStart.x, pendingStart.y) : null);
 
     if (!selection) {
       setSelectionBox(null);
@@ -237,8 +307,8 @@ export function EditorPage() {
       const [minX, minY, , maxX, maxY] = selection.bounds_mm;
       // The SVG's Y-flip means the drawing's top edge (max Y) is the
       // screen's top edge.
-      const topLeft = toScreen(minX, maxY);
-      const bottomRight = toScreen(maxX, minY);
+      const topLeft = toScreen(fit, minX, maxY);
+      const bottomRight = toScreen(fit, maxX, minY);
       setSelectionBox({
         left: topLeft.left,
         top: topLeft.top,
@@ -246,14 +316,31 @@ export function EditorPage() {
         height: Math.max(bottomRight.top - topLeft.top, 2),
       });
     }
-  }, [pendingStart, selection, current]);
+
+    if (!hoverPoint || !wantsSnap()) {
+      setSnapPoint(null);
+      return;
+    }
+    const thresholdWorld = SNAP_RADIUS_PX / fit.scale;
+    let best: { x: number; y: number; dist: number } | null = null;
+    for (const hit of snapCandidates) {
+      for (const [x, y] of hit.snap_points_mm) {
+        const dist = Math.hypot(x - hoverPoint.x, y - hoverPoint.y);
+        if (dist <= thresholdWorld && (!best || dist < best.dist)) best = { x, y, dist };
+      }
+    }
+    setSnapPoint(
+      best ? { ...toScreen(fit, best.x, best.y), world: { x: best.x, y: best.y } } : null,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingStart, selection, hoverPoint, snapCandidates, tool, moving, current]);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">図面を編集する</h1>
         <p className="mt-1 max-w-2xl text-sm text-ink-muted">
-          線分ツールはクリックで始点、もう一度クリックで終点を指定します。選択ツールはクリックで最も近いエンティティを選び、移動または削除できます。ファイルはこのブラウザだけが保持し、編集のたびに送り直されます
+          線分ツールはクリックで始点、もう一度クリックで終点を指定します。既存の端点・中点・中心に近づくと吸着します。選択ツールはクリックで最も近いエンティティを選び、移動または削除できます。ファイルはこのブラウザだけが保持し、編集のたびに送り直されます
           — サーバには残りません。
         </p>
       </div>
@@ -343,6 +430,12 @@ export function EditorPage() {
               </>
             )}
             {tool === 'select' && selection && moving && <span>移動先をクリック</span>}
+            {snapPoint && (
+              <span className="text-sys-hydronic">
+                スナップ中 ({snapPoint.world.x.toFixed(0)}, {snapPoint.world.y.toFixed(0)}
+                )
+              </span>
+            )}
 
             <button
               type="button"
@@ -358,6 +451,8 @@ export function EditorPage() {
           <div
             ref={containerRef}
             onClick={onCanvasClick}
+            onMouseMove={onCanvasMouseMove}
+            onMouseLeave={onCanvasMouseLeave}
             className="relative h-[32rem] overflow-hidden rounded border border-rule bg-paper-raised"
             style={{ cursor: edit.isPending || pick.isPending ? 'wait' : 'crosshair' }}
           >
@@ -377,6 +472,12 @@ export function EditorPage() {
               <div
                 className="pointer-events-none absolute border-2 border-dashed border-accent"
                 style={selectionBox}
+              />
+            )}
+            {snapPoint && (
+              <div
+                className="pointer-events-none absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 border-sys-hydronic bg-paper-raised"
+                style={{ left: snapPoint.left, top: snapPoint.top }}
               />
             )}
           </div>
