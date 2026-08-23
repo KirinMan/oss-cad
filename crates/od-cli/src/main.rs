@@ -90,7 +90,7 @@ enum Command {
         input: PathBuf,
         output: PathBuf,
         /// Only draw this window: `x1,y1,x2,y2` in drawing millimetres.
-        #[arg(long, value_name = "X1,Y1,X2,Y2")]
+        #[arg(long, value_name = "X1,Y1,X2,Y2", allow_hyphen_values = true)]
         window: Option<String>,
         /// Only draw these layers, comma-separated.
         #[arg(long, value_delimiter = ',')]
@@ -107,10 +107,15 @@ enum Command {
     Query {
         input: PathBuf,
         /// Entities meeting this window: `x1,y1,x2,y2`.
-        #[arg(long, value_name = "X1,Y1,X2,Y2", conflicts_with = "near")]
+        #[arg(
+            long,
+            value_name = "X1,Y1,X2,Y2",
+            conflicts_with = "near",
+            allow_hyphen_values = true
+        )]
         window: Option<String>,
         /// Entities nearest this point: `x,y`.
-        #[arg(long, value_name = "X,Y")]
+        #[arg(long, value_name = "X,Y", allow_hyphen_values = true)]
         near: Option<String>,
         /// How many to return for `--near`.
         #[arg(long, default_value_t = 10)]
@@ -451,4 +456,44 @@ fn parts(command: &PartsCommand, library: Option<&std::path::Path>, json: bool) 
         PartsCommand::Specs { id } => report::specs(&catalog, id.as_deref(), json),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Without `allow_hyphen_values`, clap reads a leading `-` in `--near`'s
+    // own value as the start of a new (unknown) flag — a real bug an editing
+    // canvas hits immediately, since half of everything left of the origin
+    // has a negative X.
+    #[test]
+    fn near_and_window_accept_negative_coordinates() {
+        let cli = Cli::try_parse_from([
+            "od",
+            "query",
+            "plan.dxf",
+            "--near",
+            "-137.8,182.7",
+            "--count",
+            "1",
+        ])
+        .expect("a negative --near parses");
+        assert!(matches!(
+            cli.command,
+            Command::Query { near: Some(n), .. } if n == "-137.8,182.7"
+        ));
+
+        let cli = Cli::try_parse_from([
+            "od",
+            "query",
+            "plan.dxf",
+            "--window",
+            "-1000,-2000,1000,2000",
+        ])
+        .expect("a negative --window parses");
+        assert!(matches!(
+            cli.command,
+            Command::Query { window: Some(w), .. } if w == "-1000,-2000,1000,2000"
+        ));
+    }
 }
