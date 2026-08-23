@@ -32,6 +32,8 @@ mod render;
 use od_core::{Database, ObjectId};
 use od_geom3d::Aabb3;
 
+pub use render::ViewBox;
+
 /// What to paint behind the drawing.
 ///
 /// This is not only decoration: colour 7 means "the opposite of the paper", so
@@ -127,6 +129,15 @@ impl SvgOptions {
 /// Renders a drawing.
 #[must_use]
 pub fn to_svg(db: &Database, options: &SvgOptions) -> String {
+    render::render(db, options).0
+}
+
+/// Renders a drawing and reports the `viewBox` it chose — for a caller (an
+/// editing canvas) that needs to map a click on the image back to a drawing
+/// coordinate, which the raw drawing extents alone cannot give it once
+/// padding and the degenerate-extent fallbacks are accounted for.
+#[must_use]
+pub fn to_svg_with_view_box(db: &Database, options: &SvgOptions) -> (String, ViewBox) {
     render::render(db, options)
 }
 

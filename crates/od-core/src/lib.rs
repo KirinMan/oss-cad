@@ -33,6 +33,7 @@
 //! ```
 
 pub mod database;
+pub mod edit;
 pub mod entity;
 pub mod error;
 pub mod id;
@@ -45,6 +46,7 @@ pub use database::{
     Database, DatabaseSnapshot, DbStats, Dictionary, GeoRef, HeaderVars, MODEL_SPACE, Object,
     ObjectKind, PAPER_SPACE, PreservedBlob, Units,
 };
+pub use edit::{Command, CommandOutcome};
 pub use entity::{
     AttributeValue, BlockRef, Entity, Geometry, HAlign, Hatch, HatchPattern, MTextEntity,
     ProxyGraphic, TextEntity, TextFlow, VAlign,

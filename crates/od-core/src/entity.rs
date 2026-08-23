@@ -382,6 +382,74 @@ impl Geometry {
             }
         }
     }
+
+    /// Points worth snapping to when drawing or moving something else near
+    /// this entity — endpoints and centres, not a sampled approximation of
+    /// the curve. Deliberately not every mathematically snappable point (a
+    /// circle's quadrants, for one): this is the set a click can reach
+    /// exactly without first establishing an in-plane basis, which most of
+    /// this crate's geometry does not carry.
+    #[must_use]
+    pub fn snap_points(&self) -> Vec<Point3> {
+        match self {
+            Geometry::Point(p) => vec![*p],
+            Geometry::Line { a, b } => {
+                vec![
+                    *a,
+                    *b,
+                    Point3::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0, (a.z + b.z) / 2.0),
+                ]
+            }
+            Geometry::Circle { center, .. } => vec![*center],
+            Geometry::Arc {
+                center,
+                radius,
+                start_angle,
+                sweep,
+                ..
+            } => {
+                let arc2 = od_geom2d::Arc2::new(
+                    Point2::new(center.x, center.y),
+                    *radius,
+                    *start_angle,
+                    *sweep,
+                );
+                [arc2.start_point(), arc2.end_point(), arc2.midpoint()]
+                    .into_iter()
+                    .map(|p| Point3::new(p.x, p.y, center.z))
+                    .chain(std::iter::once(*center))
+                    .collect()
+            }
+            Geometry::Ellipse { center, .. } => vec![*center],
+            Geometry::Polyline {
+                polyline,
+                elevation,
+                ..
+            } => polyline
+                .vertices
+                .iter()
+                .map(|v| Point3::new(v.point.x, v.point.y, *elevation))
+                .collect(),
+            Geometry::Polyline3d { points, .. } => points.clone(),
+            Geometry::Spline { control_points, .. } => {
+                match (control_points.first(), control_points.last()) {
+                    (Some(&first), Some(&last)) => vec![first, last],
+                    _ => Vec::new(),
+                }
+            }
+            Geometry::Text(t) => vec![t.position],
+            Geometry::MText(t) => vec![t.position],
+            Geometry::BlockRef(b) => vec![b.position],
+            Geometry::Hatch(_) | Geometry::Solid3d { .. } => Vec::new(),
+            Geometry::Unsupported { proxy, .. } => proxy
+                .iter()
+                .flat_map(|g| match g {
+                    ProxyGraphic::Polyline { points, .. } => points.clone(),
+                    ProxyGraphic::Text { position, .. } => vec![*position],
+                })
+                .collect(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -391,6 +459,57 @@ mod tests {
 
     fn id(n: u64) -> ObjectId {
         ObjectId::new(ActorId::SYSTEM, n)
+    }
+
+    #[test]
+    fn a_line_snaps_to_its_endpoints_and_midpoint() {
+        let g = Geometry::Line {
+            a: Point3::ORIGIN,
+            b: Point3::new(2000.0, 0.0, 0.0),
+        };
+        let points = g.snap_points();
+        assert_eq!(points.len(), 3);
+        assert!(points.contains(&Point3::ORIGIN));
+        assert!(points.contains(&Point3::new(2000.0, 0.0, 0.0)));
+        assert!(points.contains(&Point3::new(1000.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn an_arc_snaps_to_its_endpoints_midpoint_and_centre() {
+        let g = Geometry::Arc {
+            center: Point3::new(0.0, 0.0, 500.0),
+            radius: 10.0,
+            start_angle: 0.0,
+            sweep: std::f64::consts::FRAC_PI_2,
+            normal: Vec3::Z,
+        };
+        let points = g.snap_points();
+        assert_eq!(points.len(), 4);
+        assert!(points.contains(&Point3::new(0.0, 0.0, 500.0)), "centre");
+        assert!(
+            points
+                .iter()
+                .any(|p| p.coincides_with(Point3::new(10.0, 0.0, 500.0)))
+        );
+        assert!(
+            points
+                .iter()
+                .any(|p| p.coincides_with(Point3::new(0.0, 10.0, 500.0)))
+        );
+    }
+
+    #[test]
+    fn a_block_reference_snaps_to_its_insertion_point() {
+        let g = Geometry::BlockRef(Box::new(BlockRef {
+            block: id(9),
+            position: Point3::new(1234.0, 5678.0, 0.0),
+            scale: Vec3::new(1.0, 1.0, 1.0),
+            rotation: 0.0,
+            attributes: vec![],
+            array: (1, 1),
+            array_spacing: (0.0, 0.0),
+        }));
+        assert_eq!(g.snap_points(), vec![Point3::new(1234.0, 5678.0, 0.0)]);
     }
 
     #[test]

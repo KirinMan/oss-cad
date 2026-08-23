@@ -335,6 +335,19 @@ impl Document {
         }
     }
 
+    /// Runs one [`crate::edit::Command`] as a single named, undoable edit
+    /// (ADR-006, `docs/02-architecture.md`) — the entry point a UI, a script
+    /// or a network message all go through, in preference to building a
+    /// transaction closure by hand for edits simple enough to describe as
+    /// data.
+    pub fn execute(
+        &mut self,
+        name: impl Into<String>,
+        command: &crate::edit::Command,
+    ) -> Result<crate::edit::CommandOutcome> {
+        self.edit(name, |tx| command.apply(tx))
+    }
+
     pub fn undo(&mut self) -> Option<String> {
         let batch = self.history.undo.pop()?;
         let inverse = undo_batch(&mut self.db, &batch.changes);

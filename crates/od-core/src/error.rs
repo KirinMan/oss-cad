@@ -29,6 +29,9 @@ pub enum DbError {
         name: String,
         problems: Vec<DbError>,
     },
+
+    #[error("entity {id} is a {geometry}, which this edit does not yet support")]
+    UnsupportedEdit { id: ObjectId, geometry: String },
 }
 
 pub type Result<T> = std::result::Result<T, DbError>;

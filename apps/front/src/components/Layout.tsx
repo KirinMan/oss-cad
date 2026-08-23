@@ -22,6 +22,7 @@ export function Layout() {
             <NavLink to="/">部品</NavLink>
             <NavLink to="/systems">系統・仕様</NavLink>
             <NavLink to="/drawing">図面</NavLink>
+            <NavLink to="/editor">編集</NavLink>
           </nav>
         </div>
       </header>

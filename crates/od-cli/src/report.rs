@@ -498,7 +498,14 @@ pub fn specs(catalog: &Catalog, id: Option<&str>, json: bool) {
     }
 }
 
-pub fn render(db: &Database, input: &Path, output: &Path, bytes: usize, json: bool) {
+pub fn render(
+    db: &Database,
+    input: &Path,
+    output: &Path,
+    bytes: usize,
+    view_box: od_io_svg::ViewBox,
+    json: bool,
+) {
     let s = db.stats();
     if json {
         #[derive(Serialize)]
@@ -507,12 +514,23 @@ pub fn render(db: &Database, input: &Path, output: &Path, bytes: usize, json: bo
             output: String,
             entities: usize,
             svg_bytes: usize,
+            /// `[min_x, min_y, width, height]`, drawing millimetres, already
+            /// Y-flipped to match the SVG's own coordinate space — what a
+            /// client needs to map a click on the image back to a drawing
+            /// coordinate.
+            view_box: [f64; 4],
         }
         emit(&Report {
             input: input.display().to_string(),
             output: output.display().to_string(),
             entities: s.entities,
             svg_bytes: bytes,
+            view_box: [
+                view_box.min_x,
+                view_box.min_y,
+                view_box.width,
+                view_box.height,
+            ],
         });
         return;
     }
@@ -527,6 +545,54 @@ pub fn render(db: &Database, input: &Path, output: &Path, bytes: usize, json: bo
         output.display(),
         s.entities,
     );
+}
+
+pub fn edit(
+    outcome: &od_core::CommandOutcome,
+    input: &Path,
+    output: &Path,
+    rendered: Option<(&Path, od_io_svg::ViewBox)>,
+    json: bool,
+) {
+    if json {
+        #[derive(Serialize)]
+        struct Report<'a> {
+            input: String,
+            output: String,
+            created: &'a [od_core::ObjectId],
+            modified: &'a [od_core::ObjectId],
+            deleted: &'a [od_core::ObjectId],
+            render: Option<RenderedInfo>,
+        }
+        #[derive(Serialize)]
+        struct RenderedInfo {
+            output: String,
+            view_box: [f64; 4],
+        }
+        emit(&Report {
+            input: input.display().to_string(),
+            output: output.display().to_string(),
+            created: &outcome.created,
+            modified: &outcome.modified,
+            deleted: &outcome.deleted,
+            render: rendered.map(|(path, vb)| RenderedInfo {
+                output: path.display().to_string(),
+                view_box: [vb.min_x, vb.min_y, vb.width, vb.height],
+            }),
+        });
+        return;
+    }
+
+    println!("{} → {}", input.display(), output.display());
+    println!(
+        "  {} created, {} modified, {} deleted",
+        outcome.created.len(),
+        outcome.modified.len(),
+        outcome.deleted.len()
+    );
+    if let Some((path, _)) = rendered {
+        println!("  rendered → {}", path.display());
+    }
 }
 
 pub fn mep_demo(db: &Database, output: &Path, fittings: usize, segments: usize, json: bool) {
@@ -701,6 +767,10 @@ pub fn query(db: &Database, found: &[od_core::ObjectId], indexed: usize, json: b
         kind: String,
         layer: String,
         bounds_mm: [f64; 6],
+        /// Endpoints, centres and midpoints — what an editing canvas snaps a
+        /// click to, distinct from `bounds_mm` because a box corner is
+        /// usually not a point the entity actually passes through.
+        snap_points_mm: Vec<[f64; 3]>,
     }
 
     let hits: Vec<Hit> = found
@@ -721,6 +791,12 @@ pub fn query(db: &Database, found: &[od_core::ObjectId], indexed: usize, json: b
                 } else {
                     [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z]
                 },
+                snap_points_mm: entity
+                    .geom
+                    .snap_points()
+                    .into_iter()
+                    .map(|p| [p.x, p.y, p.z])
+                    .collect(),
             })
         })
         .collect();

@@ -15,7 +15,20 @@ const MAX_BLOCK_DEPTH: usize = 32;
 /// plots at.
 const HAIRLINE_MM: f64 = 0.13;
 
-pub(crate) fn render(db: &Database, options: &SvgOptions) -> String {
+/// The SVG's `viewBox`, in drawing millimetres and already Y-flipped to match
+/// the coordinate space the SVG itself uses. A client that wants to turn a
+/// click on the rendered image back into a drawing coordinate needs exactly
+/// this — not the drawing's raw extents, which the padding here and the
+/// degenerate-extent fallbacks below both shift away from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ViewBox {
+    pub min_x: f64,
+    pub min_y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+pub(crate) fn render(db: &Database, options: &SvgOptions) -> (String, ViewBox) {
     let space = options.space.unwrap_or_else(|| db.model_space());
     let index = DrawingIndex::build(db, space);
 
@@ -27,7 +40,7 @@ pub(crate) fn render(db: &Database, options: &SvgOptions) -> String {
     };
 
     let mut out = String::with_capacity(64 * 1024);
-    write_open(&mut out, &extents, options);
+    let view_box = write_open(&mut out, &extents, options);
 
     // A stroke width is in drawing units, so a hairline at building scale would
     // be invisible. Scale the floor with the drawing's size, the way a plotted
@@ -56,7 +69,7 @@ pub(crate) fn render(db: &Database, options: &SvgOptions) -> String {
     }
 
     out.push_str("</g>\n</svg>\n");
-    out
+    (out, view_box)
 }
 
 struct Ctx<'a> {
@@ -65,7 +78,7 @@ struct Ctx<'a> {
     min_stroke: f64,
 }
 
-fn write_open(out: &mut String, extents: &Aabb3, options: &SvgOptions) {
+fn write_open(out: &mut String, extents: &Aabb3, options: &SvgOptions) -> ViewBox {
     let (w, h, min_x, max_y) = if extents.is_empty() {
         (100.0, 100.0, 0.0, 100.0)
     } else {
@@ -86,12 +99,15 @@ fn write_open(out: &mut String, extents: &Aabb3, options: &SvgOptions) {
     };
 
     let pad = (w.max(h)) * 0.02;
+    let view_box = ViewBox {
+        min_x: min_x - pad,
+        min_y: -(max_y + pad),
+        width: w + pad * 2.0,
+        height: h + pad * 2.0,
+    };
     let view = format!(
         "{} {} {} {}",
-        min_x - pad,
-        -(max_y + pad),
-        w + pad * 2.0,
-        h + pad * 2.0
+        view_box.min_x, view_box.min_y, view_box.width, view_box.height
     );
 
     let _ = write!(
@@ -121,6 +137,7 @@ fn write_open(out: &mut String, extents: &Aabb3, options: &SvgOptions) {
     // would be one more place for a coordinate to go wrong.
     out.push_str(r#"<g transform="scale(1 -1)" stroke-linecap="round" stroke-linejoin="round">"#);
     out.push('\n');
+    view_box
 }
 
 fn is_visible(db: &Database, entity: &Entity, options: &SvgOptions) -> bool {

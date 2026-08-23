@@ -57,6 +57,24 @@ enum Command {
         #[arg(long, value_enum, default_value_t = RuleSet::Basic)]
         rules: RuleSet,
     },
+    /// Applies one edit command and saves the result (ADR-006).
+    ///
+    /// The single path a UI, a script or a service applies a change through —
+    /// `apps/api` shells out to this for the editing canvas rather than
+    /// reimplementing `od-core`'s edit logic in TypeScript.
+    Edit {
+        input: PathBuf,
+        output: PathBuf,
+        /// A `Command`, as JSON — e.g.
+        /// `{"kind":"add_line","layer":"0","a":[0,0,0],"b":[1000,0,0]}`.
+        #[arg(long)]
+        command: String,
+        /// Also render the result to SVG, so a caller gets both in one
+        /// invocation instead of a second full document load.
+        #[arg(long, value_name = "SVG")]
+        render: Option<PathBuf>,
+    },
+
     /// Read a drawing, write it, read it back, and compare.
     Roundtrip {
         input: PathBuf,
@@ -72,7 +90,7 @@ enum Command {
         input: PathBuf,
         output: PathBuf,
         /// Only draw this window: `x1,y1,x2,y2` in drawing millimetres.
-        #[arg(long, value_name = "X1,Y1,X2,Y2")]
+        #[arg(long, value_name = "X1,Y1,X2,Y2", allow_hyphen_values = true)]
         window: Option<String>,
         /// Only draw these layers, comma-separated.
         #[arg(long, value_delimiter = ',')]
@@ -89,10 +107,15 @@ enum Command {
     Query {
         input: PathBuf,
         /// Entities meeting this window: `x1,y1,x2,y2`.
-        #[arg(long, value_name = "X1,Y1,X2,Y2", conflicts_with = "near")]
+        #[arg(
+            long,
+            value_name = "X1,Y1,X2,Y2",
+            conflicts_with = "near",
+            allow_hyphen_values = true
+        )]
         window: Option<String>,
         /// Entities nearest this point: `x,y`.
-        #[arg(long, value_name = "X,Y")]
+        #[arg(long, value_name = "X,Y", allow_hyphen_values = true)]
         near: Option<String>,
         /// How many to return for `--near`.
         #[arg(long, default_value_t = 10)]
@@ -160,6 +183,12 @@ fn main() -> Result<()> {
             strict,
         } => convert(&input, &output, strict, cli.json),
         Command::Inspect { input } => inspect(&input, cli.json),
+        Command::Edit {
+            input,
+            output,
+            command,
+            render,
+        } => edit_drawing(&input, &output, &command, render.as_deref(), cli.json),
         Command::Check { input, rules } => check_drawing(&input, rules, cli.json),
         Command::Roundtrip { input, via } => roundtrip(&input, via, cli.json),
         Command::Render {
@@ -328,10 +357,45 @@ fn render(
         options.window = Some(parse_window(text)?);
     }
 
-    let svg = od_io_svg::to_svg(&db, &options);
+    let (svg, view_box) = od_io_svg::to_svg_with_view_box(&db, &options);
     std::fs::write(output, &svg).with_context(|| format!("writing {}", output.display()))?;
 
-    report::render(&db, input, output, svg.len(), json);
+    report::render(&db, input, output, svg.len(), view_box, json);
+    Ok(())
+}
+
+/// Applies a [`od_core::Command`] and saves the result — the one path a UI,
+/// script or service edits a drawing through (ADR-006).
+fn edit_drawing(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    command_json: &str,
+    render_svg: Option<&std::path::Path>,
+    json: bool,
+) -> Result<()> {
+    let (db, _) = load::load(input)?;
+    let mut doc = od_core::Document::new(db);
+
+    let command: od_core::Command =
+        serde_json::from_str(command_json).context("--command is not a valid edit command")?;
+    let outcome = doc
+        .execute("Edit", &command)
+        .context("applying the command")?;
+
+    load::save(&doc.db, output)?;
+
+    let rendered = match render_svg {
+        Some(svg_out) => {
+            let (svg, view_box) =
+                od_io_svg::to_svg_with_view_box(&doc.db, &od_io_svg::SvgOptions::default());
+            std::fs::write(svg_out, &svg)
+                .with_context(|| format!("writing {}", svg_out.display()))?;
+            Some((svg_out, view_box))
+        }
+        None => None,
+    };
+
+    report::edit(&outcome, input, output, rendered, json);
     Ok(())
 }
 
@@ -392,4 +456,44 @@ fn parts(command: &PartsCommand, library: Option<&std::path::Path>, json: bool) 
         PartsCommand::Specs { id } => report::specs(&catalog, id.as_deref(), json),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Without `allow_hyphen_values`, clap reads a leading `-` in `--near`'s
+    // own value as the start of a new (unknown) flag — a real bug an editing
+    // canvas hits immediately, since half of everything left of the origin
+    // has a negative X.
+    #[test]
+    fn near_and_window_accept_negative_coordinates() {
+        let cli = Cli::try_parse_from([
+            "od",
+            "query",
+            "plan.dxf",
+            "--near",
+            "-137.8,182.7",
+            "--count",
+            "1",
+        ])
+        .expect("a negative --near parses");
+        assert!(matches!(
+            cli.command,
+            Command::Query { near: Some(n), .. } if n == "-137.8,182.7"
+        ));
+
+        let cli = Cli::try_parse_from([
+            "od",
+            "query",
+            "plan.dxf",
+            "--window",
+            "-1000,-2000,1000,2000",
+        ])
+        .expect("a negative --window parses");
+        assert!(matches!(
+            cli.command,
+            Command::Query { window: Some(w), .. } if w == "-1000,-2000,1000,2000"
+        ));
+    }
 }
