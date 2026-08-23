@@ -400,7 +400,27 @@ impl Geometry {
                     Point3::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0, (a.z + b.z) / 2.0),
                 ]
             }
-            Geometry::Circle { center, .. } => vec![*center],
+            Geometry::Circle {
+                center,
+                radius,
+                normal,
+            } => {
+                let mut points = vec![*center];
+                // Quadrant points need an in-plane basis, which only exists
+                // once `normal` is known to be non-degenerate — a circle with
+                // a zero normal is already malformed, and reporting only the
+                // centre for it is the honest answer, not a special case.
+                if let Some(z) = normal.normalized() {
+                    if let Some(x) = z.any_perpendicular() {
+                        let y = z.cross(x);
+                        points.push(*center + x * *radius);
+                        points.push(*center - x * *radius);
+                        points.push(*center + y * *radius);
+                        points.push(*center - y * *radius);
+                    }
+                }
+                points
+            }
             Geometry::Arc {
                 center,
                 radius,
@@ -496,6 +516,29 @@ mod tests {
                 .iter()
                 .any(|p| p.coincides_with(Point3::new(0.0, 10.0, 500.0)))
         );
+    }
+
+    #[test]
+    fn a_circle_snaps_to_its_centre_and_quadrants() {
+        let g = Geometry::Circle {
+            center: Point3::new(100.0, 200.0, 0.0),
+            radius: 50.0,
+            normal: Vec3::Z,
+        };
+        let points = g.snap_points();
+        assert_eq!(points.len(), 5);
+        assert!(points.contains(&Point3::new(100.0, 200.0, 0.0)), "centre");
+        for expected in [
+            Point3::new(150.0, 200.0, 0.0),
+            Point3::new(50.0, 200.0, 0.0),
+            Point3::new(100.0, 250.0, 0.0),
+            Point3::new(100.0, 150.0, 0.0),
+        ] {
+            assert!(
+                points.iter().any(|p| p.coincides_with(expected)),
+                "missing quadrant at {expected:?}"
+            );
+        }
     }
 
     #[test]
