@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import type { Command } from '@opendraft/shared';
-import { editDrawing, renderDrawingWithViewBox } from '../api.ts';
+import type { Command, QueryHit } from '@opendraft/shared';
+import { editDrawing, queryNear, renderDrawingWithViewBox } from '../api.ts';
 
 /**
- * The first real editing canvas (Phase 2, `docs/06-roadmap.md`).
+ * The editing canvas (Phase 2, `docs/06-roadmap.md`).
  *
  * Every edit is a `Command` (ADR-006, `docs/02-architecture.md`): a click here
  * builds the same JSON `od edit --command` and a future script would. There is
@@ -16,12 +16,11 @@ import { editDrawing, renderDrawingWithViewBox } from '../api.ts';
  * undo history — there is only ever one open edit in flight, so nothing is
  * lost by keeping it this simple.
  *
- * Only one tool exists so far: draw a line. `od-core::Command` already
- * supports moving and deleting entities; wiring those in needs a way to pick
- * an entity, which needs hit-testing against real geometry, not the rendered
- * `<img>` — a drawing is untrusted content and is never inlined into the page
- * (CLAUDE.md), so there is no clickable DOM to hit-test against. That is the
- * next slice, not this one.
+ * Selecting an entity goes through `POST /api/drawings/query` — the same
+ * spatial index `od query --near` already answers "what is near here"
+ * through — rather than hit-testing the rendered `<img>`, which is untrusted
+ * content and is never inlined into the page (CLAUDE.md), so there is no
+ * clickable DOM to hit-test against in the first place.
  */
 
 interface Snapshot {
@@ -30,12 +29,17 @@ interface Snapshot {
   viewBox: [number, number, number, number];
 }
 
+type Tool = 'line' | 'select';
+
 const DEFAULT_LAYER = 'A-EDIT';
 
 export function EditorPage() {
   const [current, setCurrent] = useState<Snapshot | null>(null);
   const [history, setHistory] = useState<Snapshot[]>([]);
+  const [tool, setTool] = useState<Tool>('line');
   const [pendingStart, setPendingStart] = useState<{ x: number; y: number } | null>(null);
+  const [selection, setSelection] = useState<QueryHit | null>(null);
+  const [moving, setMoving] = useState(false);
   const [layer, setLayer] = useState(DEFAULT_LAYER);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -50,6 +54,12 @@ export function EditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function resetInteraction() {
+    setPendingStart(null);
+    setSelection(null);
+    setMoving(false);
+  }
+
   const open = useMutation({
     mutationFn: async (file: File) => {
       const { url, viewBox } = await renderDrawingWithViewBox(file);
@@ -57,7 +67,7 @@ export function EditorPage() {
     },
     onSuccess: (snap) => {
       setHistory([]);
-      setPendingStart(null);
+      resetInteraction();
       setError(null);
       setCurrent(snap);
     },
@@ -73,7 +83,21 @@ export function EditorPage() {
       setError(null);
       setHistory((h) => (current ? [...h, current] : h));
       setCurrent({ file: result.document, url: result.url, viewBox: result.viewBox });
+      // The cached selection's bounds are for the document before this edit;
+      // stale bounds would draw the highlight in the wrong place.
+      setSelection(null);
+      setMoving(false);
     },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const pick = useMutation({
+    mutationFn: async (point: { x: number; y: number }) => {
+      if (!current) throw new Error('先に図面を開いてください');
+      const [hit] = await queryNear(current.file, point, 1);
+      return hit ?? null;
+    },
+    onSuccess: (hit) => setSelection(hit),
     onError: (e: Error) => setError(e.message),
   });
 
@@ -85,7 +109,12 @@ export function EditorPage() {
       setCurrent(previous);
       return h.slice(0, -1);
     });
-    setPendingStart(null);
+    resetInteraction();
+  }
+
+  function switchTool(next: Tool) {
+    setTool(next);
+    resetInteraction();
   }
 
   /**
@@ -112,54 +141,119 @@ export function EditorPage() {
     return { x: svgX, y: -svgY };
   }
 
+  /** The drawing-space point a move's delta is measured from. */
+  function selectionAnchor(hit: QueryHit): { x: number; y: number } {
+    const [minX, minY, , maxX, maxY] = hit.bounds_mm;
+    return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+  }
+
   function onCanvasClick(e: React.MouseEvent) {
-    if (!current || edit.isPending) return;
+    if (!current || edit.isPending || pick.isPending) return;
     const point = toWorld(e.clientX, e.clientY);
     if (!point) return;
 
-    if (!pendingStart) {
-      setPendingStart(point);
+    if (tool === 'line') {
+      if (!pendingStart) {
+        setPendingStart(point);
+        return;
+      }
+      edit.mutate({
+        kind: 'add_line',
+        layer,
+        a: { x: pendingStart.x, y: pendingStart.y, z: 0 },
+        b: { x: point.x, y: point.y, z: 0 },
+      });
+      setPendingStart(null);
       return;
     }
-    edit.mutate({
-      kind: 'add_line',
-      layer,
-      a: { x: pendingStart.x, y: pendingStart.y, z: 0 },
-      b: { x: point.x, y: point.y, z: 0 },
-    });
-    setPendingStart(null);
+
+    // tool === 'select'
+    if (moving && selection) {
+      const anchor = selectionAnchor(selection);
+      edit.mutate({
+        kind: 'move_entities',
+        ids: [selection.id],
+        delta: { x: point.x - anchor.x, y: point.y - anchor.y, z: 0 },
+      });
+      return;
+    }
+    pick.mutate(point);
   }
 
-  // Where the pending start point sits on screen, for the marker — the
-  // forward direction of `toWorld`, not its inverse; both need to agree, so
-  // this is deliberately the mirror-image computation of the click handler.
-  // Computed in an effect rather than during render: it reads the
-  // container's live layout through the ref, which render must not do.
+  function deleteSelection() {
+    if (!selection) return;
+    edit.mutate({ kind: 'delete_entities', ids: [selection.id] });
+  }
+
+  // Delete/Backspace removes the current selection — but not while a text
+  // input has focus, where Backspace means "erase a character."
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      const target = e.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)
+        return;
+      if (!selection || edit.isPending) return;
+      e.preventDefault();
+      deleteSelection();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, edit.isPending]);
+
+  // Overlay geometry — the pending line's start marker, and the selected
+  // entity's bounding box. Computed in an effect rather than during render:
+  // both read the container's live layout through the ref, which render must
+  // not do.
   const [marker, setMarker] = useState<{ left: number; top: number } | null>(null);
+  const [selectionBox, setSelectionBox] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
   useEffect(() => {
     const box = containerRef.current?.getBoundingClientRect();
-    if (!pendingStart || !current || !box) {
+    if (!current || !box) {
       setMarker(null);
+      setSelectionBox(null);
       return;
     }
     const [vbX, vbY, vbW, vbH] = current.viewBox;
     const scale = Math.min(box.width / vbW, box.height / vbH);
     const offsetX = (box.width - vbW * scale) / 2;
     const offsetY = (box.height - vbH * scale) / 2;
-    const svgX = pendingStart.x;
-    const svgY = -pendingStart.y;
-    setMarker({
-      left: (svgX - vbX) * scale + offsetX,
-      top: (svgY - vbY) * scale + offsetY,
+    const toScreen = (x: number, y: number) => ({
+      left: (x - vbX) * scale + offsetX,
+      top: (-y - vbY) * scale + offsetY,
     });
-  }, [pendingStart, current]);
+
+    setMarker(pendingStart ? toScreen(pendingStart.x, pendingStart.y) : null);
+
+    if (!selection) {
+      setSelectionBox(null);
+    } else {
+      const [minX, minY, , maxX, maxY] = selection.bounds_mm;
+      // The SVG's Y-flip means the drawing's top edge (max Y) is the
+      // screen's top edge.
+      const topLeft = toScreen(minX, maxY);
+      const bottomRight = toScreen(maxX, minY);
+      setSelectionBox({
+        left: topLeft.left,
+        top: topLeft.top,
+        width: Math.max(bottomRight.left - topLeft.left, 2),
+        height: Math.max(bottomRight.top - topLeft.top, 2),
+      });
+    }
+  }, [pendingStart, selection, current]);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">図面を編集する</h1>
         <p className="mt-1 max-w-2xl text-sm text-ink-muted">
-          クリックで始点、もう一度クリックで終点を指定して線分を描きます。ファイルはこのブラウザだけが保持し、編集のたびに送り直されます
+          線分ツールはクリックで始点、もう一度クリックで終点を指定します。選択ツールはクリックで最も近いエンティティを選び、移動または削除できます。ファイルはこのブラウザだけが保持し、編集のたびに送り直されます
           — サーバには残りません。
         </p>
       </div>
@@ -205,17 +299,51 @@ export function EditorPage() {
       {current && (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
-            <span className="rounded border border-rule bg-paper-raised px-2 py-1 text-ink">
-              線分ツール
-            </span>
-            {pendingStart ? (
-              <span>
-                始点 ({pendingStart.x.toFixed(0)}, {pendingStart.y.toFixed(0)}) —
-                終点をクリック
-              </span>
-            ) : (
-              <span>始点をクリック</span>
+            <div className="flex gap-1">
+              <ToolButton active={tool === 'line'} onClick={() => switchTool('line')}>
+                線分
+              </ToolButton>
+              <ToolButton active={tool === 'select'} onClick={() => switchTool('select')}>
+                選択
+              </ToolButton>
+            </div>
+
+            {tool === 'line' &&
+              (pendingStart ? (
+                <span>
+                  始点 ({pendingStart.x.toFixed(0)}, {pendingStart.y.toFixed(0)}) —
+                  終点をクリック
+                </span>
+              ) : (
+                <span>始点をクリック</span>
+              ))}
+
+            {tool === 'select' && !selection && (
+              <span>エンティティをクリックして選択</span>
             )}
+            {tool === 'select' && selection && !moving && (
+              <>
+                <span>
+                  選択中: {selection.kind}（{selection.layer}）
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMoving(true)}
+                  className="rounded border border-rule px-2 py-1 text-ink"
+                >
+                  移動先をクリック
+                </button>
+                <button
+                  type="button"
+                  onClick={deleteSelection}
+                  className="rounded border border-sys-fire/40 px-2 py-1 text-sys-fire"
+                >
+                  削除
+                </button>
+              </>
+            )}
+            {tool === 'select' && selection && moving && <span>移動先をクリック</span>}
+
             <button
               type="button"
               onClick={undo}
@@ -224,14 +352,14 @@ export function EditorPage() {
             >
               元に戻す（{history.length}）
             </button>
-            {edit.isPending && <span>適用中…</span>}
+            {(edit.isPending || pick.isPending) && <span>処理中…</span>}
           </div>
 
           <div
             ref={containerRef}
             onClick={onCanvasClick}
             className="relative h-[32rem] overflow-hidden rounded border border-rule bg-paper-raised"
-            style={{ cursor: edit.isPending ? 'wait' : 'crosshair' }}
+            style={{ cursor: edit.isPending || pick.isPending ? 'wait' : 'crosshair' }}
           >
             <img
               src={current.url}
@@ -245,9 +373,40 @@ export function EditorPage() {
                 style={marker}
               />
             )}
+            {selectionBox && (
+              <div
+                className="pointer-events-none absolute border-2 border-dashed border-accent"
+                style={selectionBox}
+              />
+            )}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+function ToolButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded border px-2 py-1 transition-colors ${
+        active
+          ? 'border-accent bg-accent/10 text-ink'
+          : 'border-rule bg-paper-raised text-ink-muted hover:text-ink'
+      }`}
+    >
+      {children}
+    </button>
   );
 }

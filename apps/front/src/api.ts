@@ -4,6 +4,7 @@ import {
   inspectionSchema,
   partDetailSchema,
   partSummarySchema,
+  queryReportSchema,
   specSchema,
   systemDefSchema,
   viewBoxSchema,
@@ -13,6 +14,7 @@ import {
   type Inspection,
   type PartDetail,
   type PartSummary,
+  type QueryHit,
   type Spec,
   type SystemDef,
   type ViewBox,
@@ -267,6 +269,41 @@ export async function editDrawing(file: File, command: Command): Promise<EditRes
     url,
     viewBox,
   };
+}
+
+/**
+ * Finds entities near a drawing-space point, through the spatial index —
+ * how a click becomes "which entity did that mean" without ever hit-testing
+ * against the rendered SVG itself, which is untrusted content and is never
+ * inlined into the page (CLAUDE.md).
+ */
+export async function queryNear(
+  file: File,
+  point: { x: number; y: number },
+  count = 1,
+): Promise<QueryHit[]> {
+  const form = new FormData();
+  form.set('file', file);
+  const res = await fetch(
+    `/api/drawings/query?near=${point.x},${point.y}&count=${count}`,
+    { method: 'POST', body: form },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as ApiError | null;
+    throw new ApiRequestError(
+      body?.error ?? `query failed with ${res.status}`,
+      res.status,
+      body?.detail,
+    );
+  }
+  const parsed = queryReportSchema.safeParse(await res.json());
+  if (!parsed.success) {
+    throw new ApiRequestError(
+      `the server sent something this build does not understand: ${parsed.error.issues[0]?.message ?? 'schema mismatch'}`,
+      res.status,
+    );
+  }
+  return parsed.data.hits;
 }
 
 /** Formats a drawing can be saved as. */
