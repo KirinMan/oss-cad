@@ -1,0 +1,260 @@
+{
+  "$comment": "Pipe fittings, sized from the nominal bore D. Face-to-centre dimensions follow the usual proportions for threaded and welded fittings rather than any one manufacturer's table, so the part is right to draw and to clash-check at every size.",
+  "parts": [
+    {
+      "id": "pipe.elbow.90",
+      "name": { "ja": "エルボ 90°", "en": "Elbow 90°" },
+      "category": "pipe-fitting",
+      "tags": ["pipe", "elbow", "エルボ", "曲がり"],
+      "ifc_class": "IfcPipeFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 50, "min": 10, "max": 600, "unit": "mm" },
+        { "name": "R", "label": { "ja": "曲げ半径", "en": "Bend radius" }, "default": "max(D * 1.5, 30)", "min": 15, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["R", "R", 0], "direction": [0, 1, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        { "kind": "arc", "c": [0, "R"], "r": "R - D / 2", "start": -90, "sweep": 90 },
+        { "kind": "arc", "c": [0, "R"], "r": "R + D / 2", "start": -90, "sweep": 90 },
+        { "kind": "line", "a": [0, "-D / 2"], "b": [0, "D / 2"] },
+        { "kind": "line", "a": ["R - D / 2", "R"], "b": ["R + D / 2", "R"] }
+      ],
+      "body3d": [{ "kind": "bend", "center": [0, "R", 0], "axis": [0, 0, 1], "radius": "R", "angle": 90, "profile": { "kind": "round", "d": "D" } }],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_PipeFittingTypeCommon.NominalDiameter" },
+        { "name": "material", "label": { "ja": "材質", "en": "Material" }, "ty": "text", "ifc_property": "Pset_PipeFittingTypeCommon.Material", "default": "炭素鋼" },
+        { "name": "joint", "label": { "ja": "接合方法", "en": "Joint" }, "ty": "text", "ifc_property": "Pset_PipeFittingTypeCommon.ConnectionType", "default": "ねじ込み" }
+      ]
+    },
+    {
+      "id": "pipe.elbow.45",
+      "name": { "ja": "エルボ 45°", "en": "Elbow 45°" },
+      "category": "pipe-fitting",
+      "tags": ["pipe", "elbow", "エルボ"],
+      "ifc_class": "IfcPipeFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 50, "min": 10, "max": 600, "unit": "mm" },
+        { "name": "R", "label": { "ja": "曲げ半径", "en": "Bend radius" }, "default": "max(D * 1.5, 30)", "min": 15, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        {
+          "name": "out",
+          "origin": ["R * 0.7071067811865476", "R - R * 0.7071067811865476", 0],
+          "direction": [0.7071067811865476, 0.7071067811865476, 0],
+          "profile": { "kind": "round", "d": "D" },
+          "system_kind": "water"
+        }
+      ],
+      "symbol2d": [
+        { "kind": "arc", "c": [0, "R"], "r": "R - D / 2", "start": -90, "sweep": 45 },
+        { "kind": "arc", "c": [0, "R"], "r": "R + D / 2", "start": -90, "sweep": 45 },
+        { "kind": "line", "a": [0, "-D / 2"], "b": [0, "D / 2"] }
+      ],
+      "body3d": [{ "kind": "bend", "center": [0, "R", 0], "axis": [0, 0, 1], "radius": "R", "angle": 45, "profile": { "kind": "round", "d": "D" } }],
+      "properties": [{ "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_PipeFittingTypeCommon.NominalDiameter" }]
+    },
+    {
+      "id": "pipe.tee",
+      "name": { "ja": "チーズ", "en": "Tee" },
+      "category": "pipe-fitting",
+      "tags": ["pipe", "tee", "チーズ", "分岐", "T"],
+      "ifc_class": "IfcPipeFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "主管径", "en": "Run bore" }, "default": 50, "min": 10, "max": 600, "unit": "mm" },
+        { "name": "BD", "label": { "ja": "枝管径", "en": "Branch bore" }, "default": "D", "min": 10, "max": 600, "unit": "mm" },
+        { "name": "L", "label": { "ja": "全長", "en": "Length" }, "default": "max(D * 3, 80)", "min": 40, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "branch", "origin": ["L / 2", "L / 2", 0], "direction": [0, 1, 0], "profile": { "kind": "round", "d": "BD" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2"],
+            ["L", "-D / 2"],
+            ["L", "D / 2"],
+            [0, "D / 2"]
+          ],
+          "closed": true
+        },
+        {
+          "kind": "polyline",
+          "points": [
+            ["L / 2 - BD / 2", "D / 2"],
+            ["L / 2 - BD / 2", "L / 2"],
+            ["L / 2 + BD / 2", "L / 2"],
+            ["L / 2 + BD / 2", "D / 2"]
+          ],
+          "closed": false
+        }
+      ],
+      "body3d": [
+        { "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2" },
+        { "kind": "cylinder", "base": ["L / 2", 0, 0], "axis": [0, "L / 2", 0], "radius": "BD / 2" }
+      ],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "主管径", "en": "Run bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_PipeFittingTypeCommon.NominalDiameter" },
+        { "name": "branch_diameter", "label": { "ja": "枝管径", "en": "Branch bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_PipeFittingOccurrence.BranchDiameter" }
+      ]
+    },
+    {
+      "id": "pipe.reducer",
+      "name": { "ja": "径違いソケット", "en": "Reducer" },
+      "category": "pipe-fitting",
+      "tags": ["pipe", "reducer", "レジューサ", "径違い", "ソケット"],
+      "ifc_class": "IfcPipeFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D1", "label": { "ja": "入口径", "en": "Inlet bore" }, "default": 50, "min": 10, "max": 600, "unit": "mm" },
+        { "name": "D2", "label": { "ja": "出口径", "en": "Outlet bore" }, "default": 40, "min": 10, "max": 600, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": "max(abs(D1 - D2) * 3, 60)", "min": 30, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D1" }, "system_kind": "water" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D2" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D1 / 2"],
+            ["L", "-D2 / 2"],
+            ["L", "D2 / 2"],
+            [0, "D1 / 2"]
+          ],
+          "closed": true
+        }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "max(D1, D2) / 2" }],
+      "properties": [
+        { "name": "inlet_diameter", "label": { "ja": "入口径", "en": "Inlet bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_PipeFittingTypeCommon.NominalDiameter" },
+        { "name": "outlet_diameter", "label": { "ja": "出口径", "en": "Outlet bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_PipeFittingOccurrence.OutletDiameter" }
+      ]
+    },
+    {
+      "id": "pipe.socket",
+      "name": { "ja": "ソケット", "en": "Socket / coupling" },
+      "category": "pipe-fitting",
+      "tags": ["pipe", "socket", "ソケット", "カップリング"],
+      "ifc_class": "IfcPipeFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 50, "min": 10, "max": 600, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": "max(D * 1.2, 40)", "min": 20, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2 - 4"],
+            ["L", "-D / 2 - 4"],
+            ["L", "D / 2 + 4"],
+            [0, "D / 2 + 4"]
+          ],
+          "closed": true
+        }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2 + 4" }],
+      "properties": [{ "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_PipeFittingTypeCommon.NominalDiameter" }]
+    },
+    {
+      "id": "pipe.flange",
+      "name": { "ja": "フランジ", "en": "Flange" },
+      "category": "pipe-fitting",
+      "tags": ["pipe", "flange", "フランジ"],
+      "ifc_class": "IfcPipeFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 50, "min": 10, "max": 600, "unit": "mm" },
+        { "name": "OD", "label": { "ja": "フランジ外径", "en": "Flange diameter" }, "default": "D * 2 + 30", "min": 50, "unit": "mm" },
+        { "name": "T", "label": { "ja": "厚さ", "en": "Thickness" }, "default": "max(D * 0.25, 12)", "min": 8, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["T", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        { "kind": "line", "a": [0, "-OD / 2"], "b": [0, "OD / 2"] },
+        { "kind": "line", "a": ["T", "-OD / 2"], "b": ["T", "OD / 2"] },
+        { "kind": "line", "a": [0, "-OD / 2"], "b": ["T", "-OD / 2"] },
+        { "kind": "line", "a": [0, "OD / 2"], "b": ["T", "OD / 2"] }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": ["T", 0, 0], "radius": "OD / 2" }],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_PipeFittingTypeCommon.NominalDiameter" },
+        { "name": "pressure_rating", "label": { "ja": "呼び圧力", "en": "Pressure rating" }, "ty": "text", "ifc_property": "Pset_PipeFittingTypeCommon.PressureRating", "default": "10K" }
+      ]
+    },
+    {
+      "id": "pipe.union",
+      "name": { "ja": "ユニオン", "en": "Union" },
+      "category": "pipe-fitting",
+      "tags": ["pipe", "union", "ユニオン"],
+      "ifc_class": "IfcPipeFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 25, "min": 10, "max": 150, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": "max(D * 1.6, 50)", "min": 30, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2 - 6"],
+            ["L", "-D / 2 - 6"],
+            ["L", "D / 2 + 6"],
+            [0, "D / 2 + 6"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["L / 2", "-D / 2 - 10"], "b": ["L / 2", "D / 2 + 10"] }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2 + 8" }],
+      "properties": [{ "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_PipeFittingTypeCommon.NominalDiameter" }]
+    },
+    {
+      "id": "pipe.cap",
+      "name": { "ja": "キャップ（管端閉止）", "en": "Cap" },
+      "category": "pipe-fitting",
+      "tags": ["pipe", "cap", "キャップ", "閉止", "プラグ"],
+      "ifc_class": "IfcPipeFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 50, "min": 10, "max": 600, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": "max(D * 0.8, 30)", "min": 15, "unit": "mm" }
+      ],
+      "ports": [{ "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2 - 4"],
+            ["L", "-D / 2 - 4"],
+            ["L", "D / 2 + 4"],
+            [0, "D / 2 + 4"]
+          ],
+          "closed": true
+        }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2 + 4" }],
+      "properties": [{ "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_PipeFittingTypeCommon.NominalDiameter" }]
+    }
+  ]
+}

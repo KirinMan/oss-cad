@@ -1,0 +1,45 @@
+# Licence policy (docs/05-interop-license.md).
+#
+# The core is Apache-2.0 so that companies can adopt it and third parties can
+# build a support business on it — the condition under which an open CAD project
+# survives. That only holds if a copyleft dependency never reaches the linked
+# build, so the boundary is checked mechanically rather than remembered.
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CC0-1.0",
+    # LGPL is acceptable only through dynamic linking (OCCT, IfcOpenShell).
+    # Neither is a dependency yet; when one is added it must be dynamic, and
+    # that must be stated in NOTICE.
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+# GPL reaches this project only through od-bridge-dwg, which is a separate
+# executable, a separate distribution, and communicates over stdio. Anything
+# that would link it here is a licensing defect, not a dependency choice.
+deny = [
+    { name = "libredwg" },
+    { name = "libredwg-sys" },
+]
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

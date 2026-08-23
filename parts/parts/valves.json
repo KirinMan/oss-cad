@@ -1,0 +1,283 @@
+{
+  "$comment": "Valves. Plan symbols follow the bow-tie convention of JIS/SHASE piping drawings, with the operator drawn above the body so the symbol reads at drawing scale.",
+  "parts": [
+    {
+      "id": "valve.gate",
+      "name": { "ja": "仕切弁", "en": "Gate valve" },
+      "category": "valve",
+      "tags": ["valve", "弁", "仕切弁", "ゲート", "GV"],
+      "ifc_class": "IfcValve",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 50, "min": 10, "max": 600, "unit": "mm" },
+        { "name": "L", "label": { "ja": "面間", "en": "Face to face" }, "default": "max(D * 2.5, 100)", "min": 50, "unit": "mm" },
+        { "name": "HW", "label": { "ja": "ハンドル径", "en": "Handwheel diameter" }, "default": "max(D * 1.6, 80)", "min": 40, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2"],
+            [0, "D / 2"],
+            ["L", "-D / 2"],
+            ["L", "D / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["L / 2", 0], "b": ["L / 2", "HW / 2 + D"] },
+        { "kind": "line", "a": ["L / 2 - HW / 2", "HW / 2 + D"], "b": ["L / 2 + HW / 2", "HW / 2 + D"] }
+      ],
+      "body3d": [
+        { "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2 + 6" },
+        { "kind": "box", "min": ["L / 2 - HW / 2", "-HW / 2", 0], "max": ["L / 2 + HW / 2", "HW / 2", "HW / 2 + D"] }
+      ],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_ValveTypeCommon.NominalDiameter" },
+        { "name": "valve_type", "label": { "ja": "種別", "en": "Valve type" }, "ty": "text", "ifc_property": "Pset_ValveTypeCommon.ValveMechanism", "default": "GATE" },
+        { "name": "pressure_rating", "label": { "ja": "呼び圧力", "en": "Pressure rating" }, "ty": "text", "ifc_property": "Pset_ValveTypeCommon.PressureRating", "default": "10K" }
+      ]
+    },
+    {
+      "id": "valve.globe",
+      "name": { "ja": "玉形弁", "en": "Globe valve" },
+      "category": "valve",
+      "tags": ["valve", "弁", "玉形弁", "グローブ"],
+      "ifc_class": "IfcValve",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 50, "min": 10, "max": 400, "unit": "mm" },
+        { "name": "L", "label": { "ja": "面間", "en": "Face to face" }, "default": "max(D * 2.5, 100)", "min": 50, "unit": "mm" },
+        { "name": "HW", "label": { "ja": "ハンドル径", "en": "Handwheel diameter" }, "default": "max(D * 1.6, 80)", "min": 40, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2"],
+            [0, "D / 2"],
+            ["L", "-D / 2"],
+            ["L", "D / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "circle", "c": ["L / 2", 0], "r": "D / 3" },
+        { "kind": "line", "a": ["L / 2", 0], "b": ["L / 2", "HW / 2 + D"] },
+        { "kind": "line", "a": ["L / 2 - HW / 2", "HW / 2 + D"], "b": ["L / 2 + HW / 2", "HW / 2 + D"] }
+      ],
+      "body3d": [
+        { "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2 + 8" },
+        { "kind": "box", "min": ["L / 2 - HW / 2", "-HW / 2", 0], "max": ["L / 2 + HW / 2", "HW / 2", "HW / 2 + D"] }
+      ],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_ValveTypeCommon.NominalDiameter" },
+        { "name": "valve_type", "label": { "ja": "種別", "en": "Valve type" }, "ty": "text", "ifc_property": "Pset_ValveTypeCommon.ValveMechanism", "default": "GLOBE" }
+      ]
+    },
+    {
+      "id": "valve.ball",
+      "name": { "ja": "ボール弁", "en": "Ball valve" },
+      "category": "valve",
+      "tags": ["valve", "弁", "ボール弁", "BV"],
+      "ifc_class": "IfcValve",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 25, "min": 10, "max": 200, "unit": "mm" },
+        { "name": "L", "label": { "ja": "面間", "en": "Face to face" }, "default": "max(D * 2.2, 70)", "min": 40, "unit": "mm" },
+        { "name": "LV", "label": { "ja": "レバー長", "en": "Lever length" }, "default": "max(D * 3, 100)", "min": 50, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2"],
+            [0, "D / 2"],
+            ["L", "-D / 2"],
+            ["L", "D / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "circle", "c": ["L / 2", 0], "r": "D / 3" },
+        { "kind": "line", "a": ["L / 2", 0], "b": ["L / 2", "LV"] }
+      ],
+      "body3d": [
+        { "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2 + 6" },
+        { "kind": "box", "min": ["L / 2 - 10", "-10", 0], "max": ["L / 2 + 10", "10", "LV"] }
+      ],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_ValveTypeCommon.NominalDiameter" },
+        { "name": "valve_type", "label": { "ja": "種別", "en": "Valve type" }, "ty": "text", "ifc_property": "Pset_ValveTypeCommon.ValveMechanism", "default": "BALL" }
+      ]
+    },
+    {
+      "id": "valve.butterfly",
+      "name": { "ja": "バタフライ弁", "en": "Butterfly valve" },
+      "category": "valve",
+      "tags": ["valve", "弁", "バタフライ", "BFV"],
+      "ifc_class": "IfcValve",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 100, "min": 40, "max": 900, "unit": "mm" },
+        { "name": "L", "label": { "ja": "面間", "en": "Face to face" }, "default": "max(D * 0.6, 50)", "min": 30, "unit": "mm" },
+        { "name": "HW", "label": { "ja": "操作部高さ", "en": "Operator height" }, "default": "max(D * 1.2, 120)", "min": 60, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2"],
+            [0, "D / 2"],
+            ["L", "-D / 2"],
+            ["L", "D / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": [0, "D / 2"], "b": ["L", "-D / 2"] },
+        { "kind": "line", "a": ["L / 2", 0], "b": ["L / 2", "HW"] }
+      ],
+      "body3d": [
+        { "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2 + 20" },
+        { "kind": "box", "min": ["L / 2 - 30", "-30", 0], "max": ["L / 2 + 30", "30", "HW"] }
+      ],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_ValveTypeCommon.NominalDiameter" },
+        { "name": "valve_type", "label": { "ja": "種別", "en": "Valve type" }, "ty": "text", "ifc_property": "Pset_ValveTypeCommon.ValveMechanism", "default": "BUTTERFLY" }
+      ]
+    },
+    {
+      "id": "valve.check",
+      "name": { "ja": "逆止弁", "en": "Check valve" },
+      "category": "valve",
+      "tags": ["valve", "弁", "逆止弁", "チャッキ", "CV"],
+      "ifc_class": "IfcValve",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 50, "min": 10, "max": 600, "unit": "mm" },
+        { "name": "L", "label": { "ja": "面間", "en": "Face to face" }, "default": "max(D * 2.5, 100)", "min": 50, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2"],
+            [0, "D / 2"],
+            ["L", "-D / 2"],
+            ["L", "D / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["L * 0.3", "-D / 2"], "b": ["L * 0.3", "D / 2"] },
+        {
+          "kind": "polyline",
+          "points": [
+            ["L * 0.3", 0],
+            ["L * 0.7", "D / 3"],
+            ["L * 0.7", "-D / 3"]
+          ],
+          "closed": true
+        }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2 + 8" }],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_ValveTypeCommon.NominalDiameter" },
+        { "name": "valve_type", "label": { "ja": "種別", "en": "Valve type" }, "ty": "text", "ifc_property": "Pset_ValveTypeCommon.ValveMechanism", "default": "CHECK" }
+      ]
+    },
+    {
+      "id": "valve.strainer",
+      "name": { "ja": "ストレーナ", "en": "Strainer" },
+      "category": "valve",
+      "tags": ["strainer", "ストレーナ", "ろ過器", "Y形"],
+      "ifc_class": "IfcFilter",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 50, "min": 10, "max": 400, "unit": "mm" },
+        { "name": "L", "label": { "ja": "面間", "en": "Face to face" }, "default": "max(D * 3, 120)", "min": 60, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2"],
+            ["L", "-D / 2"],
+            ["L", "D / 2"],
+            [0, "D / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["L * 0.4", "-D / 2"], "b": ["L * 0.8", "-D / 2 - D * 0.8"] },
+        { "kind": "line", "a": ["L * 0.7", "-D / 2"], "b": ["L", "-D / 2 - D * 0.6"] }
+      ],
+      "body3d": [
+        { "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2 + 8" },
+        { "kind": "cylinder", "base": ["L * 0.55", 0, 0], "axis": ["L * 0.3", "-D", 0], "radius": "D / 3" }
+      ],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_FilterTypeCommon.NominalDiameter" },
+        { "name": "mesh", "label": { "ja": "メッシュ", "en": "Mesh" }, "ty": "int", "unit": "count", "ifc_property": "Pset_FilterTypeCommon.NominalFilterFaceVelocity", "default": 40 }
+      ]
+    },
+    {
+      "id": "valve.pressure_reducing",
+      "name": { "ja": "減圧弁", "en": "Pressure reducing valve" },
+      "category": "valve",
+      "tags": ["valve", "弁", "減圧弁", "PRV"],
+      "ifc_class": "IfcValve",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Nominal bore" }, "default": 40, "min": 15, "max": 200, "unit": "mm" },
+        { "name": "L", "label": { "ja": "面間", "en": "Face to face" }, "default": "max(D * 3, 150)", "min": 80, "unit": "mm" },
+        { "name": "HT", "label": { "ja": "全高", "en": "Height" }, "default": "max(D * 3, 200)", "min": 100, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "water" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2"],
+            [0, "D / 2"],
+            ["L", "-D / 2"],
+            ["L", "D / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["L / 2", 0], "b": ["L / 2", "HT"] },
+        { "kind": "circle", "c": ["L / 2", "HT"], "r": "D * 0.8" }
+      ],
+      "body3d": [
+        { "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2 + 10" },
+        { "kind": "cylinder", "base": ["L / 2", 0, 0], "axis": [0, 0, "HT"], "radius": "D * 0.8" }
+      ],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "呼び径", "en": "Nominal bore" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_ValveTypeCommon.NominalDiameter" },
+        { "name": "set_pressure", "label": { "ja": "設定二次圧", "en": "Set pressure" }, "ty": "real", "unit": "MPa", "ifc_property": "Pset_ValveTypeCommon.WorkingPressure", "default": 0.2 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+[package]
+name = "od-io-dxf"
+description = "DXF reader and writer for OpenDraft. Written in-house rather than bound to a third party: DXF is the interchange path the project's credibility rests on."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+od-core = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "od-geom2d"
+description = "2D geometry primitives and predicates for OpenDraft. Pure functions, no I/O, no document model."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[features]
+default = ["serde"]
+serde = ["dep:serde"]
+
+[lints]
+workspace = true

@@ -1,0 +1,44 @@
+[workspace]
+resolver = "3"
+members = ["crates/od-geom2d", "crates/od-geom3d", "crates/od-core", "crates/od-io-dxf", "crates/od-parts", "crates/od-cli"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/KirinMan/oss-cad"
+authors = ["The OpenDraft Authors"]
+
+[workspace.dependencies]
+od-geom2d = { path = "crates/od-geom2d", version = "0.0.1" }
+od-geom3d = { path = "crates/od-geom3d", version = "0.0.1" }
+od-core = { path = "crates/od-core", version = "0.0.1" }
+od-io-dxf = { path = "crates/od-io-dxf", version = "0.0.1" }
+od-parts = { path = "crates/od-parts", version = "0.0.1" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+indexmap = { version = "2", features = ["serde"] }
+slotmap = { version = "1", features = ["serde"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+# The document model is the one thing we cannot get wrong later, so panics and
+# silent precision loss are denied rather than warned.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+cast_possible_truncation = "warn"
+cast_precision_loss = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.bench]
+lto = "thin"

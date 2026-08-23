@@ -1,0 +1,56 @@
+{
+  "$comment": "Galvanised sheet steel ductwork. Sizes are the spiral (round) range; rectangular ducts are sized freely in 50 mm increments and are not enumerated here. Gauges follow the SHASE-S 010 practice of stepping plate thickness with the longest side.",
+  "specs": [
+    {
+      "id": "spec.duct.galvanised.round",
+      "name": { "ja": "スパイラルダクト", "en": "Spiral duct" },
+      "system_kind": "air",
+      "material": { "ja": "亜鉛鉄板", "en": "Galvanised steel sheet" },
+      "standard": "SHASE-S 010",
+      "elbow_part": "duct.elbow.round.90",
+      "branch_part": "duct.tee.round",
+      "reducer_part": "duct.reducer.round",
+      "min_bend_radius_ratio": 1.0,
+      "stock_length": 4000,
+      "joint": { "ja": "差込み・鋲留め", "en": "Slip joint, riveted" },
+      "sizes": [
+        { "designation": "φ100", "nominal": 100, "outside": 100, "thickness": 0.5, "mass_per_m": 1.3 },
+        { "designation": "φ125", "nominal": 125, "outside": 125, "thickness": 0.5, "mass_per_m": 1.6 },
+        { "designation": "φ150", "nominal": 150, "outside": 150, "thickness": 0.5, "mass_per_m": 1.9 },
+        { "designation": "φ175", "nominal": 175, "outside": 175, "thickness": 0.5, "mass_per_m": 2.2 },
+        { "designation": "φ200", "nominal": 200, "outside": 200, "thickness": 0.5, "mass_per_m": 2.5 },
+        { "designation": "φ250", "nominal": 250, "outside": 250, "thickness": 0.6, "mass_per_m": 3.8 },
+        { "designation": "φ300", "nominal": 300, "outside": 300, "thickness": 0.6, "mass_per_m": 4.5 },
+        { "designation": "φ350", "nominal": 350, "outside": 350, "thickness": 0.6, "mass_per_m": 5.3 },
+        { "designation": "φ400", "nominal": 400, "outside": 400, "thickness": 0.8, "mass_per_m": 8.0 },
+        { "designation": "φ450", "nominal": 450, "outside": 450, "thickness": 0.8, "mass_per_m": 9.0 },
+        { "designation": "φ500", "nominal": 500, "outside": 500, "thickness": 0.8, "mass_per_m": 10.0 },
+        { "designation": "φ600", "nominal": 600, "outside": 600, "thickness": 0.8, "mass_per_m": 12.0 },
+        { "designation": "φ700", "nominal": 700, "outside": 700, "thickness": 1.0, "mass_per_m": 17.5 },
+        { "designation": "φ800", "nominal": 800, "outside": 800, "thickness": 1.0, "mass_per_m": 20.0 },
+        { "designation": "φ900", "nominal": 900, "outside": 900, "thickness": 1.0, "mass_per_m": 22.5 },
+        { "designation": "φ1000", "nominal": 1000, "outside": 1000, "thickness": 1.0, "mass_per_m": 25.0 }
+      ]
+    },
+    {
+      "id": "spec.duct.galvanised.rect",
+      "name": { "ja": "長方形ダクト", "en": "Rectangular duct" },
+      "system_kind": "air",
+      "material": { "ja": "亜鉛鉄板", "en": "Galvanised steel sheet" },
+      "standard": "SHASE-S 010",
+      "elbow_part": "duct.elbow.rect.90",
+      "branch_part": "duct.tee.rect",
+      "reducer_part": "duct.reducer.rect",
+      "min_bend_radius_ratio": 1.0,
+      "stock_length": 1820,
+      "joint": { "ja": "共板フランジ", "en": "Integral flange" },
+      "sizes": [
+        { "designation": "450以下", "nominal": 450, "outside": 450, "thickness": 0.5, "mass_per_m": 0 },
+        { "designation": "451-750", "nominal": 750, "outside": 750, "thickness": 0.6, "mass_per_m": 0 },
+        { "designation": "751-1500", "nominal": 1500, "outside": 1500, "thickness": 0.8, "mass_per_m": 0 },
+        { "designation": "1501-2200", "nominal": 2200, "outside": 2200, "thickness": 1.0, "mass_per_m": 0 },
+        { "designation": "2201以上", "nominal": 3000, "outside": 3000, "thickness": 1.2, "mass_per_m": 0 }
+      ]
+    }
+  ]
+}

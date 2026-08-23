@@ -1,0 +1,9 @@
+# Tests assert by panicking, so the workspace-wide bans on unwrap/expect/panic
+# apply to production code only.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+
+# Drawing coordinates are millimetres in f64. Anything that silently narrows
+# them is a bug, so keep the default float-comparison lints strict.
+avoid-breaking-exported-api = false

@@ -1,0 +1,31 @@
+OpenDraft
+Copyright 2026 The OpenDraft Authors
+
+This product includes software developed by the OpenDraft project
+(https://github.com/KirinMan/oss-cad).
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+--------------------------------------------------------------------------------
+Third-party notices
+--------------------------------------------------------------------------------
+
+OpenDraft keeps copyleft dependencies behind process boundaries so that the
+core stays under Apache-2.0. See docs/05-interop-license.md for the full
+rationale and the boundary design.
+
+* GNU LibreDWG (GPL-3.0-or-later) is NOT linked into this product. DWG support,
+  when enabled, runs as the separate executable `od-bridge-dwg`, distributed as
+  its own component under GPL-3.0-or-later, communicating over stdio.
+
+* Open CASCADE Technology (LGPL-2.1 with exception) and IfcOpenShell
+  (LGPL-3.0) are, when enabled, dynamically linked. They are optional
+  dependencies and are not required to build or run the core.
+
+No trademark of Autodesk, Inc. ("AutoCAD", "DWG", "DXF"), Daitec Co., Ltd.
+("CADWe'll Tfas"), or NYK Systems Inc. ("Rebro") is used to identify this
+product. Format names appear only to describe interoperability.

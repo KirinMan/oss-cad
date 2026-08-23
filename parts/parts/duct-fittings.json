@@ -1,0 +1,525 @@
+{
+  "$comment": "Duct fittings. Local frame: the inlet sits at the origin facing -X, so a fitting dropped on the end of a run needs no extra transform. Bends turn towards +Y. Every dimension is an expression in the part's parameters, which is what lets one definition serve every size (docs/04-mep.md).",
+  "parts": [
+    {
+      "id": "duct.elbow.rect.90",
+      "name": { "ja": "長方形ダクト エルボ 90°", "en": "Rectangular duct elbow 90°" },
+      "category": "duct-fitting",
+      "tags": ["duct", "elbow", "エルボ", "曲がり", "rect"],
+      "ifc_class": "IfcDuctFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 400, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 300, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "R", "label": { "ja": "曲げ半径", "en": "Bend radius" }, "default": "max(W, 150)", "min": 50, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" },
+        { "name": "out", "origin": ["R", "R", 0], "direction": [0, 1, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        { "kind": "arc", "c": [0, "R"], "r": "R - W / 2", "start": -90, "sweep": 90 },
+        { "kind": "arc", "c": [0, "R"], "r": "R + W / 2", "start": -90, "sweep": 90 },
+        { "kind": "line", "a": [0, "-W / 2"], "b": [0, "W / 2"] },
+        { "kind": "line", "a": ["R - W / 2", "R"], "b": ["R + W / 2", "R"] }
+      ],
+      "body3d": [{ "kind": "bend", "center": [0, "R", 0], "axis": [0, 0, 1], "radius": "R", "angle": 90, "profile": { "kind": "rect", "w": "W", "h": "H" } }],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalWidth" },
+        { "name": "height", "label": { "ja": "高さ", "en": "Height" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalHeight" },
+        { "name": "material", "label": { "ja": "材質", "en": "Material" }, "ty": "text", "ifc_property": "Pset_DuctFittingTypeCommon.Material", "default": "亜鉛鉄板" }
+      ]
+    },
+    {
+      "id": "duct.elbow.rect.45",
+      "name": { "ja": "長方形ダクト エルボ 45°", "en": "Rectangular duct elbow 45°" },
+      "category": "duct-fitting",
+      "tags": ["duct", "elbow", "エルボ", "rect"],
+      "ifc_class": "IfcDuctFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 400, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 300, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "R", "label": { "ja": "曲げ半径", "en": "Bend radius" }, "default": "max(W, 150)", "min": 50, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" },
+        {
+          "name": "out",
+          "origin": ["R * 0.7071067811865476", "R - R * 0.7071067811865476", 0],
+          "direction": [0.7071067811865476, 0.7071067811865476, 0],
+          "profile": { "kind": "rect", "w": "W", "h": "H" },
+          "system_kind": "air"
+        }
+      ],
+      "symbol2d": [
+        { "kind": "arc", "c": [0, "R"], "r": "R - W / 2", "start": -90, "sweep": 45 },
+        { "kind": "arc", "c": [0, "R"], "r": "R + W / 2", "start": -90, "sweep": 45 },
+        { "kind": "line", "a": [0, "-W / 2"], "b": [0, "W / 2"] }
+      ],
+      "body3d": [{ "kind": "bend", "center": [0, "R", 0], "axis": [0, 0, 1], "radius": "R", "angle": 45, "profile": { "kind": "rect", "w": "W", "h": "H" } }],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalWidth" },
+        { "name": "height", "label": { "ja": "高さ", "en": "Height" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalHeight" }
+      ]
+    },
+    {
+      "id": "duct.elbow.round.90",
+      "name": { "ja": "丸ダクト エルボ 90°", "en": "Round duct elbow 90°" },
+      "category": "duct-fitting",
+      "tags": ["duct", "elbow", "エルボ", "スパイラル", "round"],
+      "ifc_class": "IfcDuctFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Diameter" }, "default": 200, "min": 50, "max": 1500, "unit": "mm" },
+        { "name": "R", "label": { "ja": "曲げ半径", "en": "Bend radius" }, "default": "max(D * 1.0, 150)", "min": 50, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "out", "origin": ["R", "R", 0], "direction": [0, 1, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        { "kind": "arc", "c": [0, "R"], "r": "R - D / 2", "start": -90, "sweep": 90 },
+        { "kind": "arc", "c": [0, "R"], "r": "R + D / 2", "start": -90, "sweep": 90 },
+        { "kind": "line", "a": [0, "-D / 2"], "b": [0, "D / 2"] },
+        { "kind": "line", "a": ["R - D / 2", "R"], "b": ["R + D / 2", "R"] }
+      ],
+      "body3d": [{ "kind": "bend", "center": [0, "R", 0], "axis": [0, 0, 1], "radius": "R", "angle": 90, "profile": { "kind": "round", "d": "D" } }],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "呼び径", "en": "Diameter" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalDiameter" },
+        { "name": "material", "label": { "ja": "材質", "en": "Material" }, "ty": "text", "ifc_property": "Pset_DuctFittingTypeCommon.Material", "default": "亜鉛鉄板" }
+      ]
+    },
+    {
+      "id": "duct.elbow.round.45",
+      "name": { "ja": "丸ダクト エルボ 45°", "en": "Round duct elbow 45°" },
+      "category": "duct-fitting",
+      "tags": ["duct", "elbow", "エルボ", "round"],
+      "ifc_class": "IfcDuctFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "呼び径", "en": "Diameter" }, "default": 200, "min": 50, "max": 1500, "unit": "mm" },
+        { "name": "R", "label": { "ja": "曲げ半径", "en": "Bend radius" }, "default": "max(D * 1.0, 150)", "min": 50, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        {
+          "name": "out",
+          "origin": ["R * 0.7071067811865476", "R - R * 0.7071067811865476", 0],
+          "direction": [0.7071067811865476, 0.7071067811865476, 0],
+          "profile": { "kind": "round", "d": "D" },
+          "system_kind": "air"
+        }
+      ],
+      "symbol2d": [
+        { "kind": "arc", "c": [0, "R"], "r": "R - D / 2", "start": -90, "sweep": 45 },
+        { "kind": "arc", "c": [0, "R"], "r": "R + D / 2", "start": -90, "sweep": 45 },
+        { "kind": "line", "a": [0, "-D / 2"], "b": [0, "D / 2"] }
+      ],
+      "body3d": [{ "kind": "bend", "center": [0, "R", 0], "axis": [0, 0, 1], "radius": "R", "angle": 45, "profile": { "kind": "round", "d": "D" } }],
+      "properties": [{ "name": "diameter", "label": { "ja": "呼び径", "en": "Diameter" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalDiameter" }]
+    },
+    {
+      "id": "duct.reducer.rect",
+      "name": { "ja": "長方形ダクト ホッパ", "en": "Rectangular duct reducer" },
+      "category": "duct-fitting",
+      "tags": ["duct", "reducer", "ホッパ", "レジューサ", "径違い"],
+      "ifc_class": "IfcDuctFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "W1", "label": { "ja": "入口幅", "en": "Inlet width" }, "default": 500, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "H1", "label": { "ja": "入口高さ", "en": "Inlet height" }, "default": 300, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "W2", "label": { "ja": "出口幅", "en": "Outlet width" }, "default": 300, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "H2", "label": { "ja": "出口高さ", "en": "Outlet height" }, "default": 250, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": "max(abs(W1 - W2) * 3.75, 150)", "min": 50, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "W1", "h": "H1" }, "system_kind": "air" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "W2", "h": "H2" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-W1 / 2"],
+            ["L", "-W2 / 2"],
+            ["L", "W2 / 2"],
+            [0, "W1 / 2"]
+          ],
+          "closed": true
+        }
+      ],
+      "body3d": [{ "kind": "box", "min": [0, "-max(W1, W2) / 2", "-max(H1, H2) / 2"], "max": ["L", "max(W1, W2) / 2", "max(H1, H2) / 2"] }],
+      "properties": [
+        { "name": "inlet_width", "label": { "ja": "入口幅", "en": "Inlet width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalWidth" },
+        { "name": "outlet_width", "label": { "ja": "出口幅", "en": "Outlet width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingOccurrence.OutletWidth" }
+      ]
+    },
+    {
+      "id": "duct.reducer.round",
+      "name": { "ja": "丸ダクト レジューサ", "en": "Round duct reducer" },
+      "category": "duct-fitting",
+      "tags": ["duct", "reducer", "レジューサ", "径違い", "round"],
+      "ifc_class": "IfcDuctFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D1", "label": { "ja": "入口径", "en": "Inlet diameter" }, "default": 250, "min": 50, "max": 1500, "unit": "mm" },
+        { "name": "D2", "label": { "ja": "出口径", "en": "Outlet diameter" }, "default": 200, "min": 50, "max": 1500, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": "max(abs(D1 - D2) * 3.75, 150)", "min": 50, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D1" }, "system_kind": "air" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D2" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D1 / 2"],
+            ["L", "-D2 / 2"],
+            ["L", "D2 / 2"],
+            [0, "D1 / 2"]
+          ],
+          "closed": true
+        }
+      ],
+      "body3d": [{ "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "max(D1, D2) / 2" }],
+      "properties": [
+        { "name": "inlet_diameter", "label": { "ja": "入口径", "en": "Inlet diameter" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalDiameter" },
+        { "name": "outlet_diameter", "label": { "ja": "出口径", "en": "Outlet diameter" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingOccurrence.OutletDiameter" }
+      ]
+    },
+    {
+      "id": "duct.tee.rect",
+      "name": { "ja": "長方形ダクト T字管", "en": "Rectangular duct tee" },
+      "category": "duct-fitting",
+      "tags": ["duct", "tee", "分岐", "T字", "rect"],
+      "ifc_class": "IfcDuctFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "主管幅", "en": "Main width" }, "default": 400, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "主管高さ", "en": "Main height" }, "default": 300, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "BW", "label": { "ja": "枝管幅", "en": "Branch width" }, "default": 250, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "BH", "label": { "ja": "枝管高さ", "en": "Branch height" }, "default": 200, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "全長", "en": "Length" }, "default": "max(BW * 2, 400)", "min": 100, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" },
+        { "name": "branch", "origin": ["L / 2", "W / 2 + BW / 2", 0], "direction": [0, 1, 0], "profile": { "kind": "rect", "w": "BW", "h": "BH" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-W / 2"],
+            ["L", "-W / 2"],
+            ["L", "W / 2"],
+            [0, "W / 2"]
+          ],
+          "closed": true
+        },
+        {
+          "kind": "polyline",
+          "points": [
+            ["L / 2 - BW / 2", "W / 2"],
+            ["L / 2 - BW / 2", "W / 2 + BW / 2"],
+            ["L / 2 + BW / 2", "W / 2 + BW / 2"],
+            ["L / 2 + BW / 2", "W / 2"]
+          ],
+          "closed": false
+        }
+      ],
+      "body3d": [
+        { "kind": "box", "min": [0, "-W / 2", "-H / 2"], "max": ["L", "W / 2", "H / 2"] },
+        { "kind": "box", "min": ["L / 2 - BW / 2", "W / 2", "-BH / 2"], "max": ["L / 2 + BW / 2", "W / 2 + BW / 2", "BH / 2"] }
+      ],
+      "properties": [
+        { "name": "width", "label": { "ja": "主管幅", "en": "Main width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalWidth" },
+        { "name": "branch_width", "label": { "ja": "枝管幅", "en": "Branch width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingOccurrence.BranchWidth" }
+      ]
+    },
+    {
+      "id": "duct.tee.round",
+      "name": { "ja": "丸ダクト T字管", "en": "Round duct tee" },
+      "category": "duct-fitting",
+      "tags": ["duct", "tee", "分岐", "round"],
+      "ifc_class": "IfcDuctFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "主管径", "en": "Main diameter" }, "default": 250, "min": 50, "max": 1500, "unit": "mm" },
+        { "name": "BD", "label": { "ja": "枝管径", "en": "Branch diameter" }, "default": 150, "min": 50, "max": 1500, "unit": "mm" },
+        { "name": "L", "label": { "ja": "全長", "en": "Length" }, "default": "max(BD * 2, 300)", "min": 100, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "branch", "origin": ["L / 2", "D / 2 + BD / 2", 0], "direction": [0, 1, 0], "profile": { "kind": "round", "d": "BD" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2"],
+            ["L", "-D / 2"],
+            ["L", "D / 2"],
+            [0, "D / 2"]
+          ],
+          "closed": true
+        },
+        {
+          "kind": "polyline",
+          "points": [
+            ["L / 2 - BD / 2", "D / 2"],
+            ["L / 2 - BD / 2", "D / 2 + BD / 2"],
+            ["L / 2 + BD / 2", "D / 2 + BD / 2"],
+            ["L / 2 + BD / 2", "D / 2"]
+          ],
+          "closed": false
+        }
+      ],
+      "body3d": [
+        { "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2" },
+        { "kind": "cylinder", "base": ["L / 2", 0, 0], "axis": [0, "D / 2 + BD / 2", 0], "radius": "BD / 2" }
+      ],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "主管径", "en": "Main diameter" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalDiameter" },
+        { "name": "branch_diameter", "label": { "ja": "枝管径", "en": "Branch diameter" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingOccurrence.BranchDiameter" }
+      ]
+    },
+    {
+      "id": "duct.wye.round",
+      "name": { "ja": "丸ダクト Y分岐 45°", "en": "Round duct wye 45°" },
+      "category": "duct-fitting",
+      "tags": ["duct", "wye", "Y分岐", "分岐", "round"],
+      "ifc_class": "IfcDuctFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "D", "label": { "ja": "主管径", "en": "Main diameter" }, "default": 250, "min": 50, "max": 1500, "unit": "mm" },
+        { "name": "BD", "label": { "ja": "枝管径", "en": "Branch diameter" }, "default": 150, "min": 50, "max": 1500, "unit": "mm" },
+        { "name": "L", "label": { "ja": "全長", "en": "Length" }, "default": "max(D * 3, 450)", "min": 150, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "branch", "origin": ["L * 0.7", "L * 0.3", 0], "direction": [0.7071067811865476, 0.7071067811865476, 0], "profile": { "kind": "round", "d": "BD" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-D / 2"],
+            ["L", "-D / 2"],
+            ["L", "D / 2"],
+            [0, "D / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["L * 0.35", "D / 2"], "b": ["L * 0.7", "L * 0.3"] }
+      ],
+      "body3d": [
+        { "kind": "cylinder", "base": [0, 0, 0], "axis": ["L", 0, 0], "radius": "D / 2" },
+        { "kind": "cylinder", "base": ["L * 0.35", 0, 0], "axis": ["L * 0.35", "L * 0.3", 0], "radius": "BD / 2" }
+      ],
+      "properties": [
+        { "name": "diameter", "label": { "ja": "主管径", "en": "Main diameter" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalDiameter" },
+        { "name": "branch_diameter", "label": { "ja": "枝管径", "en": "Branch diameter" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingOccurrence.BranchDiameter" }
+      ]
+    },
+    {
+      "id": "duct.canvas",
+      "name": { "ja": "キャンバス継手", "en": "Flexible (canvas) connector" },
+      "category": "duct-fitting",
+      "tags": ["duct", "canvas", "キャンバス", "たわみ", "防振"],
+      "ifc_class": "IfcDuctFitting",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 400, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 300, "min": 50, "max": 3000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": 150, "min": 100, "max": 300, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-W / 2"],
+            ["L", "-W / 2"],
+            ["L", "W / 2"],
+            [0, "W / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["L / 3", "-W / 2"], "b": ["L / 3", "W / 2"] },
+        { "kind": "line", "a": ["L * 2 / 3", "-W / 2"], "b": ["L * 2 / 3", "W / 2"] }
+      ],
+      "body3d": [{ "kind": "box", "min": [0, "-W / 2", "-H / 2"], "max": ["L", "W / 2", "H / 2"] }],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctFittingTypeCommon.NominalWidth" },
+        { "name": "material", "label": { "ja": "材質", "en": "Material" }, "ty": "text", "ifc_property": "Pset_DuctFittingTypeCommon.Material", "default": "帆布" }
+      ]
+    },
+    {
+      "id": "duct.damper.volume",
+      "name": { "ja": "風量調整ダンパー VD", "en": "Volume damper (VD)" },
+      "category": "duct-equipment",
+      "tags": ["duct", "damper", "ダンパー", "VD", "風量調整"],
+      "ifc_class": "IfcDamper",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 400, "min": 100, "max": 2000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 300, "min": 100, "max": 2000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": 200, "min": 150, "max": 400, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-W / 2"],
+            ["L", "-W / 2"],
+            ["L", "W / 2"],
+            [0, "W / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["L / 2 - L / 4", "-W / 2"], "b": ["L / 2 + L / 4", "W / 2"] },
+        { "kind": "text", "at": ["L / 2 - 40", "W / 2 + 30"], "value": "VD", "height": 60 }
+      ],
+      "body3d": [{ "kind": "box", "min": [0, "-W / 2", "-H / 2"], "max": ["L", "W / 2", "H / 2"] }],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DamperTypeCommon.NominalWidth" },
+        { "name": "height", "label": { "ja": "高さ", "en": "Height" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DamperTypeCommon.NominalHeight" },
+        { "name": "operation", "label": { "ja": "操作方式", "en": "Operation" }, "ty": "text", "ifc_property": "Pset_DamperTypeCommon.OperationType", "default": "手動" }
+      ]
+    },
+    {
+      "id": "duct.damper.fire",
+      "name": { "ja": "防火ダンパー FD", "en": "Fire damper (FD)" },
+      "category": "duct-equipment",
+      "tags": ["duct", "damper", "ダンパー", "FD", "防火", "区画貫通"],
+      "ifc_class": "IfcDamper",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 400, "min": 100, "max": 2000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 300, "min": 100, "max": 2000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": 300, "min": 200, "max": 600, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-W / 2"],
+            ["L", "-W / 2"],
+            ["L", "W / 2"],
+            [0, "W / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["L / 2 - L / 4", "-W / 2"], "b": ["L / 2 + L / 4", "W / 2"] },
+        { "kind": "line", "a": ["L / 2 - L / 4", "W / 2"], "b": ["L / 2 + L / 4", "-W / 2"] },
+        { "kind": "text", "at": ["L / 2 - 40", "W / 2 + 30"], "value": "FD", "height": 60 }
+      ],
+      "body3d": [{ "kind": "box", "min": [0, "-W / 2", "-H / 2"], "max": ["L", "W / 2", "H / 2"] }],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DamperTypeCommon.NominalWidth" },
+        { "name": "fire_rating", "label": { "ja": "耐火時間", "en": "Fire rating" }, "ty": "text", "ifc_property": "Pset_DamperTypeCommon.FireRating", "default": "1時間" },
+        {
+          "name": "fusible_temp",
+          "label": { "ja": "温度ヒューズ", "en": "Fusible link temperature" },
+          "ty": "real",
+          "unit": "degC",
+          "ifc_property": "Pset_DamperTypeCommon.TemperatureRating",
+          "default": 72
+        }
+      ]
+    },
+    {
+      "id": "duct.damper.motorised",
+      "name": { "ja": "電動ダンパー MD", "en": "Motorised damper (MD)" },
+      "category": "duct-equipment",
+      "tags": ["duct", "damper", "ダンパー", "MD", "電動"],
+      "ifc_class": "IfcDamper",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 400, "min": 100, "max": 2000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 300, "min": 100, "max": 2000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": 250, "min": 150, "max": 500, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" },
+        { "name": "control", "origin": ["L / 2", "-W / 2 - 100", 0], "direction": [0, -1, 0], "profile": { "kind": "terminal" }, "system_kind": "signal" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-W / 2"],
+            ["L", "-W / 2"],
+            ["L", "W / 2"],
+            [0, "W / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["L / 2 - L / 4", "-W / 2"], "b": ["L / 2 + L / 4", "W / 2"] },
+        { "kind": "circle", "c": ["L / 2", "-W / 2 - 60"], "r": 40 },
+        { "kind": "text", "at": ["L / 2 - 40", "W / 2 + 30"], "value": "MD", "height": 60 }
+      ],
+      "body3d": [
+        { "kind": "box", "min": [0, "-W / 2", "-H / 2"], "max": ["L", "W / 2", "H / 2"] },
+        { "kind": "box", "min": ["L / 2 - 60", "-W / 2 - 120", "-60"], "max": ["L / 2 + 60", "-W / 2", "60"] }
+      ],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DamperTypeCommon.NominalWidth" },
+        { "name": "operation", "label": { "ja": "操作方式", "en": "Operation" }, "ty": "text", "ifc_property": "Pset_DamperTypeCommon.OperationType", "default": "電動" }
+      ]
+    },
+    {
+      "id": "duct.silencer",
+      "name": { "ja": "消音器", "en": "Duct silencer" },
+      "category": "duct-equipment",
+      "tags": ["duct", "silencer", "消音", "サイレンサ"],
+      "ifc_class": "IfcDuctSilencer",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 600, "min": 100, "max": 3000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 400, "min": 100, "max": 3000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "長さ", "en": "Length" }, "default": 900, "min": 300, "max": 3000, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, 0, 0], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" },
+        { "name": "out", "origin": ["L", 0, 0], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "W", "h": "H" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            [0, "-W / 2"],
+            ["L", "-W / 2"],
+            ["L", "W / 2"],
+            [0, "W / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": [0, "-W / 6"], "b": ["L", "-W / 6"] },
+        { "kind": "line", "a": [0, "W / 6"], "b": ["L", "W / 6"] }
+      ],
+      "body3d": [{ "kind": "box", "min": [0, "-W / 2", "-H / 2"], "max": ["L", "W / 2", "H / 2"] }],
+      "properties": [
+        { "name": "width", "label": { "ja": "幅", "en": "Width" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctSilencerTypeCommon.NominalWidth" },
+        { "name": "length", "label": { "ja": "長さ", "en": "Length" }, "ty": "real", "unit": "mm", "ifc_property": "Pset_DuctSilencerTypeCommon.NominalLength" }
+      ]
+    }
+  ]
+}

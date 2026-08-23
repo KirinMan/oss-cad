@@ -1,0 +1,372 @@
+{
+  "$comment": "HVAC equipment. Dimensions are typical envelopes for the class of unit rather than any one product; a specified model overrides them through its parameters, and a manufacturer's own definition can replace the part entirely.",
+  "parts": [
+    {
+      "id": "hvac.indoor.cassette4",
+      "name": { "ja": "天井カセット形室内機（4方向）", "en": "Four-way ceiling cassette" },
+      "category": "hvac-equipment",
+      "tags": ["エアコン", "室内機", "カセット", "天カセ", "VRF"],
+      "ifc_class": "IfcUnitaryEquipment",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 840, "min": 600, "max": 1200, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Depth" }, "default": 840, "min": 600, "max": 1200, "unit": "mm" },
+        { "name": "H", "label": { "ja": "本体高さ", "en": "Body height" }, "default": 300, "min": 200, "max": 500, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "refrigerant_liquid", "origin": ["W / 2", 0, "H / 2"], "direction": [1, 0, 0], "profile": { "kind": "round", "d": 9.52 }, "system_kind": "hydronic" },
+        { "name": "refrigerant_gas", "origin": ["W / 2", 100, "H / 2"], "direction": [1, 0, 0], "profile": { "kind": "round", "d": 15.88 }, "system_kind": "hydronic" },
+        { "name": "condensate", "origin": ["W / 2", -100, "H / 2"], "direction": [1, 0, 0], "profile": { "kind": "round", "d": 25 }, "system_kind": "drainage" },
+        { "name": "outside_air", "origin": [0, "L / 2", "H / 2"], "direction": [0, 1, 0], "profile": { "kind": "round", "d": 100 }, "system_kind": "air" },
+        { "name": "power", "origin": ["-W / 2", 0, "H"], "direction": [-1, 0, 0], "profile": { "kind": "terminal" }, "system_kind": "power" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "-L / 2"],
+            ["W / 2", "-L / 2"],
+            ["W / 2", "L / 2"],
+            ["-W / 2", "L / 2"]
+          ],
+          "closed": true
+        },
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2 + 100", "-L / 2 + 100"],
+            ["W / 2 - 100", "-L / 2 + 100"],
+            ["W / 2 - 100", "L / 2 - 100"],
+            ["-W / 2 + 100", "L / 2 - 100"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-W / 2", "-L / 2"], "b": ["-W / 2 + 100", "-L / 2 + 100"] },
+        { "kind": "line", "a": ["W / 2", "-L / 2"], "b": ["W / 2 - 100", "-L / 2 + 100"] },
+        { "kind": "line", "a": ["W / 2", "L / 2"], "b": ["W / 2 - 100", "L / 2 - 100"] },
+        { "kind": "line", "a": ["-W / 2", "L / 2"], "b": ["-W / 2 + 100", "L / 2 - 100"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", "-L / 2", 0], "max": ["W / 2", "L / 2", "H"] }],
+      "properties": [
+        {
+          "name": "cooling_capacity",
+          "label": { "ja": "冷房能力", "en": "Cooling capacity" },
+          "ty": "real",
+          "unit": "kW",
+          "ifc_property": "Pset_UnitaryEquipmentTypeSplitSystem.NominalCoolingCapacity",
+          "default": 5.6
+        },
+        {
+          "name": "heating_capacity",
+          "label": { "ja": "暖房能力", "en": "Heating capacity" },
+          "ty": "real",
+          "unit": "kW",
+          "ifc_property": "Pset_UnitaryEquipmentTypeSplitSystem.NominalHeatingCapacity",
+          "default": 6.3
+        },
+        { "name": "airflow", "label": { "ja": "風量", "en": "Airflow" }, "ty": "real", "unit": "m3/h", "ifc_property": "Pset_UnitaryEquipmentTypeSplitSystem.NominalAirFlowRate", "default": 960 },
+        { "name": "tag", "label": { "ja": "機器記号", "en": "Tag" }, "ty": "text", "ifc_property": "Pset_ManufacturerTypeInformation.ModelReference", "default": "IU-1" }
+      ]
+    },
+    {
+      "id": "hvac.indoor.ceiling_concealed",
+      "name": { "ja": "天井隠蔽形室内機", "en": "Ducted ceiling-concealed unit" },
+      "category": "hvac-equipment",
+      "tags": ["エアコン", "室内機", "天井隠蔽", "ダクト形"],
+      "ifc_class": "IfcUnitaryEquipment",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 1000, "min": 600, "max": 2000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Depth" }, "default": 700, "min": 400, "max": 1200, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 300, "min": 200, "max": 600, "unit": "mm" },
+        { "name": "DW", "label": { "ja": "接続ダクト幅", "en": "Duct width" }, "default": "W * 0.7", "min": 200, "unit": "mm" },
+        { "name": "DH", "label": { "ja": "接続ダクト高さ", "en": "Duct height" }, "default": "H * 0.7", "min": 150, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "return", "origin": ["-W / 2", 0, "H / 2"], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "DW", "h": "DH" }, "system_kind": "air" },
+        { "name": "supply", "origin": ["W / 2", 0, "H / 2"], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "DW", "h": "DH" }, "system_kind": "air" },
+        { "name": "condensate", "origin": [0, "L / 2", "H / 4"], "direction": [0, 1, 0], "profile": { "kind": "round", "d": 25 }, "system_kind": "drainage" },
+        { "name": "power", "origin": [0, "-L / 2", "H"], "direction": [0, -1, 0], "profile": { "kind": "terminal" }, "system_kind": "power" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "-L / 2"],
+            ["W / 2", "-L / 2"],
+            ["W / 2", "L / 2"],
+            ["-W / 2", "L / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-W / 2", "-DW / 2"], "b": ["-W / 2 - 100", "-DW / 2"] },
+        { "kind": "line", "a": ["-W / 2", "DW / 2"], "b": ["-W / 2 - 100", "DW / 2"] },
+        { "kind": "line", "a": ["W / 2", "-DW / 2"], "b": ["W / 2 + 100", "-DW / 2"] },
+        { "kind": "line", "a": ["W / 2", "DW / 2"], "b": ["W / 2 + 100", "DW / 2"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", "-L / 2", 0], "max": ["W / 2", "L / 2", "H"] }],
+      "properties": [
+        {
+          "name": "cooling_capacity",
+          "label": { "ja": "冷房能力", "en": "Cooling capacity" },
+          "ty": "real",
+          "unit": "kW",
+          "ifc_property": "Pset_UnitaryEquipmentTypeSplitSystem.NominalCoolingCapacity",
+          "default": 7.1
+        },
+        {
+          "name": "external_static",
+          "label": { "ja": "機外静圧", "en": "External static pressure" },
+          "ty": "real",
+          "unit": "Pa",
+          "ifc_property": "Pset_UnitaryEquipmentTypeSplitSystem.ExternalStaticPressure",
+          "default": 50
+        },
+        { "name": "airflow", "label": { "ja": "風量", "en": "Airflow" }, "ty": "real", "unit": "m3/h", "ifc_property": "Pset_UnitaryEquipmentTypeSplitSystem.NominalAirFlowRate", "default": 1200 }
+      ]
+    },
+    {
+      "id": "hvac.outdoor.unit",
+      "name": { "ja": "室外機", "en": "Outdoor condensing unit" },
+      "category": "hvac-equipment",
+      "tags": ["エアコン", "室外機", "VRF", "コンデンシング"],
+      "ifc_class": "IfcUnitaryEquipment",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 1000, "min": 600, "max": 2000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Depth" }, "default": 400, "min": 250, "max": 900, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 1350, "min": 600, "max": 2200, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "refrigerant_liquid", "origin": ["W / 2", 0, 200], "direction": [1, 0, 0], "profile": { "kind": "round", "d": 9.52 }, "system_kind": "hydronic" },
+        { "name": "refrigerant_gas", "origin": ["W / 2", 0, 300], "direction": [1, 0, 0], "profile": { "kind": "round", "d": 19.05 }, "system_kind": "hydronic" },
+        { "name": "power", "origin": ["-W / 2", 0, 300], "direction": [-1, 0, 0], "profile": { "kind": "terminal" }, "system_kind": "power" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "-L / 2"],
+            ["W / 2", "-L / 2"],
+            ["W / 2", "L / 2"],
+            ["-W / 2", "L / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "circle", "c": ["-W / 4", 0], "r": "min(W / 4, L / 2) - 20" },
+        { "kind": "circle", "c": ["W / 4", 0], "r": "min(W / 4, L / 2) - 20" }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", "-L / 2", 0], "max": ["W / 2", "L / 2", "H"] }],
+      "properties": [
+        {
+          "name": "cooling_capacity",
+          "label": { "ja": "冷房能力", "en": "Cooling capacity" },
+          "ty": "real",
+          "unit": "kW",
+          "ifc_property": "Pset_UnitaryEquipmentTypeSplitSystem.NominalCoolingCapacity",
+          "default": 22.4
+        },
+        {
+          "name": "power_input",
+          "label": { "ja": "消費電力", "en": "Power input" },
+          "ty": "real",
+          "unit": "kW",
+          "ifc_property": "Pset_ElectricalDeviceCommon.NominalPowerConsumption",
+          "default": 6.5
+        },
+        { "name": "weight", "label": { "ja": "質量", "en": "Weight" }, "ty": "real", "unit": "kg", "ifc_property": "Pset_ManufacturerTypeInformation.AssemblyPlace", "default": 180 }
+      ]
+    },
+    {
+      "id": "hvac.fcu",
+      "name": { "ja": "ファンコイルユニット", "en": "Fan coil unit" },
+      "category": "hvac-equipment",
+      "tags": ["FCU", "ファンコイル", "空調機"],
+      "ifc_class": "IfcUnitaryEquipment",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 900, "min": 500, "max": 1800, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Depth" }, "default": 500, "min": 300, "max": 900, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 250, "min": 150, "max": 500, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "chw_supply", "origin": ["-W / 2", 100, "H / 2"], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": 20 }, "system_kind": "hydronic" },
+        { "name": "chw_return", "origin": ["-W / 2", -100, "H / 2"], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": 20 }, "system_kind": "hydronic" },
+        { "name": "condensate", "origin": ["-W / 2", 0, "H / 4"], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": 25 }, "system_kind": "drainage" },
+        { "name": "supply", "origin": ["W / 2", 0, "H / 2"], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "W * 0.6", "h": "H * 0.6" }, "system_kind": "air" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "-L / 2"],
+            ["W / 2", "-L / 2"],
+            ["W / 2", "L / 2"],
+            ["-W / 2", "L / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-W / 4", "-L / 2"], "b": ["-W / 4", "L / 2"] },
+        { "kind": "circle", "c": ["W / 6", 0], "r": "L / 3" }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", "-L / 2", 0], "max": ["W / 2", "L / 2", "H"] }],
+      "properties": [
+        {
+          "name": "cooling_capacity",
+          "label": { "ja": "冷房能力", "en": "Cooling capacity" },
+          "ty": "real",
+          "unit": "kW",
+          "ifc_property": "Pset_UnitaryEquipmentTypeAirHandler.NominalCoolingCapacity",
+          "default": 3.5
+        },
+        { "name": "airflow", "label": { "ja": "風量", "en": "Airflow" }, "ty": "real", "unit": "m3/h", "ifc_property": "Pset_UnitaryEquipmentTypeAirHandler.NominalAirFlowRate", "default": 600 },
+        {
+          "name": "water_flow",
+          "label": { "ja": "水量", "en": "Water flow" },
+          "ty": "real",
+          "unit": "L/min",
+          "ifc_property": "Pset_UnitaryEquipmentTypeAirHandler.NominalWaterFlowRate",
+          "default": 10
+        }
+      ]
+    },
+    {
+      "id": "hvac.erv",
+      "name": { "ja": "全熱交換器", "en": "Energy recovery ventilator" },
+      "category": "hvac-equipment",
+      "tags": ["全熱交換器", "換気", "ERV", "ロスナイ"],
+      "ifc_class": "IfcAirToAirHeatRecovery",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 900, "min": 500, "max": 2000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Depth" }, "default": 900, "min": 500, "max": 2000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 350, "min": 200, "max": 800, "unit": "mm" },
+        { "name": "D", "label": { "ja": "接続径", "en": "Duct diameter" }, "default": 200, "min": 100, "max": 500, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "outside_air", "origin": ["-W / 2", "L / 4", "H / 2"], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "supply_air", "origin": ["W / 2", "L / 4", "H / 2"], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "return_air", "origin": ["W / 2", "-L / 4", "H / 2"], "direction": [1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "exhaust_air", "origin": ["-W / 2", "-L / 4", "H / 2"], "direction": [-1, 0, 0], "profile": { "kind": "round", "d": "D" }, "system_kind": "air" },
+        { "name": "power", "origin": [0, "-L / 2", "H"], "direction": [0, -1, 0], "profile": { "kind": "terminal" }, "system_kind": "power" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "-L / 2"],
+            ["W / 2", "-L / 2"],
+            ["W / 2", "L / 2"],
+            ["-W / 2", "L / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-W / 2", "-L / 2"], "b": ["W / 2", "L / 2"] },
+        { "kind": "line", "a": ["-W / 2", "L / 2"], "b": ["W / 2", "-L / 2"] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", "-L / 2", 0], "max": ["W / 2", "L / 2", "H"] }],
+      "properties": [
+        { "name": "airflow", "label": { "ja": "風量", "en": "Airflow" }, "ty": "real", "unit": "m3/h", "ifc_property": "Pset_AirToAirHeatRecoveryTypeCommon.PrimaryAirFlowRate", "default": 500 },
+        {
+          "name": "efficiency",
+          "label": { "ja": "全熱交換効率", "en": "Total heat efficiency" },
+          "ty": "real",
+          "unit": "%",
+          "ifc_property": "Pset_AirToAirHeatRecoveryTypeCommon.TotalHeatTransferEfficiency",
+          "default": 70
+        }
+      ]
+    },
+    {
+      "id": "hvac.fan.sirocco",
+      "name": { "ja": "送風機（シロッコファン）", "en": "Centrifugal fan" },
+      "category": "hvac-equipment",
+      "tags": ["送風機", "ファン", "シロッコ", "排気"],
+      "ifc_class": "IfcFan",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 700, "min": 300, "max": 2000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Depth" }, "default": 600, "min": 300, "max": 2000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 600, "min": 300, "max": 2000, "unit": "mm" },
+        { "name": "DW", "label": { "ja": "接続ダクト幅", "en": "Duct width" }, "default": "W * 0.5", "min": 150, "unit": "mm" },
+        { "name": "DH", "label": { "ja": "接続ダクト高さ", "en": "Duct height" }, "default": "H * 0.5", "min": 150, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "in", "origin": [0, "-L / 2", "H / 2"], "direction": [0, -1, 0], "profile": { "kind": "rect", "w": "DW", "h": "DH" }, "system_kind": "air" },
+        { "name": "out", "origin": ["W / 2", 0, "H / 2"], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "DW", "h": "DH" }, "system_kind": "air" },
+        { "name": "power", "origin": ["-W / 2", 0, "H / 2"], "direction": [-1, 0, 0], "profile": { "kind": "terminal" }, "system_kind": "power" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "-L / 2"],
+            ["W / 2", "-L / 2"],
+            ["W / 2", "L / 2"],
+            ["-W / 2", "L / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "circle", "c": [0, 0], "r": "min(W, L) / 2 - 50" },
+        { "kind": "line", "a": [0, 0], "b": ["W / 2", 0] }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", "-L / 2", 0], "max": ["W / 2", "L / 2", "H"] }],
+      "properties": [
+        { "name": "airflow", "label": { "ja": "風量", "en": "Airflow" }, "ty": "real", "unit": "m3/h", "ifc_property": "Pset_FanTypeCommon.NominalAirFlowRate", "default": 3000 },
+        { "name": "static_pressure", "label": { "ja": "静圧", "en": "Static pressure" }, "ty": "real", "unit": "Pa", "ifc_property": "Pset_FanTypeCommon.NominalStaticPressure", "default": 300 },
+        { "name": "motor_power", "label": { "ja": "電動機出力", "en": "Motor power" }, "ty": "real", "unit": "kW", "ifc_property": "Pset_FanTypeCommon.NominalPowerRate", "default": 0.75 }
+      ]
+    },
+    {
+      "id": "hvac.ahu",
+      "name": { "ja": "空調機（AHU）", "en": "Air handling unit" },
+      "category": "hvac-equipment",
+      "tags": ["空調機", "AHU", "エアハンドリングユニット"],
+      "ifc_class": "IfcAirTerminalBox",
+      "source": "generic",
+      "parameters": [
+        { "name": "W", "label": { "ja": "幅", "en": "Width" }, "default": 2400, "min": 800, "max": 8000, "unit": "mm" },
+        { "name": "L", "label": { "ja": "奥行", "en": "Depth" }, "default": 1200, "min": 500, "max": 3000, "unit": "mm" },
+        { "name": "H", "label": { "ja": "高さ", "en": "Height" }, "default": 1600, "min": 600, "max": 3000, "unit": "mm" },
+        { "name": "DW", "label": { "ja": "接続ダクト幅", "en": "Duct width" }, "default": "W * 0.35", "min": 200, "unit": "mm" },
+        { "name": "DH", "label": { "ja": "接続ダクト高さ", "en": "Duct height" }, "default": "H * 0.5", "min": 200, "unit": "mm" }
+      ],
+      "ports": [
+        { "name": "return", "origin": ["-W / 2", 0, "H / 2"], "direction": [-1, 0, 0], "profile": { "kind": "rect", "w": "DW", "h": "DH" }, "system_kind": "air" },
+        { "name": "supply", "origin": ["W / 2", 0, "H / 2"], "direction": [1, 0, 0], "profile": { "kind": "rect", "w": "DW", "h": "DH" }, "system_kind": "air" },
+        { "name": "chw_supply", "origin": [0, "L / 2", 300], "direction": [0, 1, 0], "profile": { "kind": "round", "d": 50 }, "system_kind": "hydronic" },
+        { "name": "chw_return", "origin": [200, "L / 2", 300], "direction": [0, 1, 0], "profile": { "kind": "round", "d": 50 }, "system_kind": "hydronic" },
+        { "name": "condensate", "origin": [-200, "L / 2", 150], "direction": [0, 1, 0], "profile": { "kind": "round", "d": 32 }, "system_kind": "drainage" },
+        { "name": "power", "origin": [0, "-L / 2", "H"], "direction": [0, -1, 0], "profile": { "kind": "terminal" }, "system_kind": "power" }
+      ],
+      "symbol2d": [
+        {
+          "kind": "polyline",
+          "points": [
+            ["-W / 2", "-L / 2"],
+            ["W / 2", "-L / 2"],
+            ["W / 2", "L / 2"],
+            ["-W / 2", "L / 2"]
+          ],
+          "closed": true
+        },
+        { "kind": "line", "a": ["-W / 6", "-L / 2"], "b": ["-W / 6", "L / 2"] },
+        { "kind": "line", "a": ["W / 6", "-L / 2"], "b": ["W / 6", "L / 2"] },
+        { "kind": "circle", "c": ["W / 3", 0], "r": "L / 3" }
+      ],
+      "body3d": [{ "kind": "box", "min": ["-W / 2", "-L / 2", 0], "max": ["W / 2", "L / 2", "H"] }],
+      "properties": [
+        { "name": "airflow", "label": { "ja": "風量", "en": "Airflow" }, "ty": "real", "unit": "m3/h", "ifc_property": "Pset_AirTerminalBoxTypeCommon.NominalAirFlowRate", "default": 10000 },
+        {
+          "name": "cooling_capacity",
+          "label": { "ja": "冷却能力", "en": "Cooling capacity" },
+          "ty": "real",
+          "unit": "kW",
+          "ifc_property": "Pset_AirTerminalBoxTypeCommon.NominalCoolingCapacity",
+          "default": 60
+        },
+        { "name": "tag", "label": { "ja": "機器記号", "en": "Tag" }, "ty": "text", "ifc_property": "Pset_ManufacturerTypeInformation.ModelReference", "default": "AHU-1" }
+      ]
+    }
+  ]
+}
