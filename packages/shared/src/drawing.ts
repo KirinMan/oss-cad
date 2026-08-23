@@ -128,12 +128,17 @@ export const editResponseSchema = z.object({
 });
 export type EditResponse = z.infer<typeof editResponseSchema>;
 
+/** `[x, y, z]` in drawing millimetres. */
+export const point3TupleSchema = z.tuple([z.number(), z.number(), z.number()]);
+
 /** One `od query` hit — `od --json query`'s own shape. */
 export const queryHitSchema = z.object({
   id: z.string(),
   kind: z.string(),
   layer: z.string(),
   bounds_mm: extentsSchema,
+  /** Endpoints, centres and midpoints — what an editing canvas snaps to. */
+  snap_points_mm: z.array(point3TupleSchema),
 });
 export type QueryHit = z.infer<typeof queryHitSchema>;
 

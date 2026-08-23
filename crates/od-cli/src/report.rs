@@ -767,6 +767,10 @@ pub fn query(db: &Database, found: &[od_core::ObjectId], indexed: usize, json: b
         kind: String,
         layer: String,
         bounds_mm: [f64; 6],
+        /// Endpoints, centres and midpoints — what an editing canvas snaps a
+        /// click to, distinct from `bounds_mm` because a box corner is
+        /// usually not a point the entity actually passes through.
+        snap_points_mm: Vec<[f64; 3]>,
     }
 
     let hits: Vec<Hit> = found
@@ -787,6 +791,12 @@ pub fn query(db: &Database, found: &[od_core::ObjectId], indexed: usize, json: b
                 } else {
                     [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z]
                 },
+                snap_points_mm: entity
+                    .geom
+                    .snap_points()
+                    .into_iter()
+                    .map(|p| [p.x, p.y, p.z])
+                    .collect(),
             })
         })
         .collect();
