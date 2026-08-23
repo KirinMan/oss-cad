@@ -271,6 +271,30 @@ describe.if(hasEngine)('drawings', () => {
     expect(box).toHaveLength(4);
   });
 
+  test('querying finds the nearest entity to a point', async () => {
+    const res = await app.request('/api/drawings/query?near=2500,1000&count=1', {
+      method: 'POST',
+      body: upload(),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      matched: number;
+      indexed: number;
+      hits: { id: string; kind: string; layer: string; bounds_mm: number[] }[];
+    };
+    expect(body.indexed).toBe(2);
+    expect(body.hits).toHaveLength(1);
+    expect(body.hits[0]?.kind).toBe('circle');
+  });
+
+  test('querying without a point is refused before it reaches the engine', async () => {
+    const res = await app.request('/api/drawings/query', {
+      method: 'POST',
+      body: upload(),
+    });
+    expect(res.status).toBe(400);
+  });
+
   test('editing draws a line and hands back the updated document and render', async () => {
     const form = upload();
     form.set(

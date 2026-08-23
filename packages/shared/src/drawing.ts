@@ -128,6 +128,22 @@ export const editResponseSchema = z.object({
 });
 export type EditResponse = z.infer<typeof editResponseSchema>;
 
+/** One `od query` hit — `od --json query`'s own shape. */
+export const queryHitSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  layer: z.string(),
+  bounds_mm: extentsSchema,
+});
+export type QueryHit = z.infer<typeof queryHitSchema>;
+
+export const queryReportSchema = z.object({
+  matched: z.number().int().nonnegative(),
+  indexed: z.number().int().nonnegative(),
+  hits: z.array(queryHitSchema),
+});
+export type QueryReport = z.infer<typeof queryReportSchema>;
+
 export const severitySchema = z.enum(['error', 'warning', 'info']);
 
 export const findingSchema = z.object({

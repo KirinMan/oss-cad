@@ -7,6 +7,7 @@ import {
   commandSchema,
   conversionSchema,
   editReportSchema,
+  queryReportSchema,
   renderSchema,
   inspectionSchema,
   partDetailSchema,
@@ -174,6 +175,32 @@ export function createApp() {
           'x-opendraft-viewbox': JSON.stringify(report.view_box),
         },
       });
+    }),
+  );
+
+  // Finds entities near a point, through the spatial index — how an editing
+  // canvas turns a click into "which entity did that mean" without ever
+  // hit-testing against the rendered SVG itself (untrusted content, never
+  // inlined into the page).
+  app.post('/api/drawings/query', (c) =>
+    withUpload(c, async (path) => {
+      const near = c.req.query('near');
+      if (!near) {
+        return c.json<ApiError>(
+          { error: 'no point', detail: 'give a point to search near: ?near=x,y' },
+          400,
+        );
+      }
+      const count = c.req.query('count') ?? '5';
+      const report = await od(queryReportSchema, [
+        'query',
+        path,
+        '--near',
+        near,
+        '--count',
+        count,
+      ]);
+      return c.json(report);
     }),
   );
 
