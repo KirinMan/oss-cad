@@ -6,8 +6,11 @@
 use crate::check::{Finding, Severity};
 use crate::load::LoadOutcome;
 use od_core::Database;
+use od_domain_mep::graph::ConnectionGraph;
+use od_domain_mep::takeoff::Takeoff;
 use od_parts::{Catalog, Instance, Part};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::Path;
 
 fn emit<T: Serialize>(value: &T) {
@@ -524,6 +527,167 @@ pub fn render(db: &Database, input: &Path, output: &Path, bytes: usize, json: bo
         output.display(),
         s.entities,
     );
+}
+
+pub fn mep_demo(db: &Database, output: &Path, fittings: usize, segments: usize, json: bool) {
+    let s = db.stats();
+    if json {
+        #[derive(Serialize)]
+        struct Report {
+            output: String,
+            entities: usize,
+            fittings_placed: usize,
+            route_segments: usize,
+        }
+        emit(&Report {
+            output: output.display().to_string(),
+            entities: s.entities,
+            fittings_placed: fittings,
+            route_segments: segments,
+        });
+        return;
+    }
+    println!(
+        "{}  ({} entities, {segments} route segment(s), {fittings} auto-inserted fitting(s))",
+        output.display(),
+        s.entities
+    );
+}
+
+pub fn mep_takeoff(t: &Takeoff, path: &Path, json: bool) {
+    if json {
+        #[derive(Serialize)]
+        struct RouteRow<'a> {
+            system: &'a str,
+            spec: &'a str,
+            length_mm: f64,
+            count: usize,
+        }
+        #[derive(Serialize)]
+        struct Report<'a> {
+            file: String,
+            total_length_mm: f64,
+            routes: Vec<RouteRow<'a>>,
+            fittings: &'a HashMap<String, usize>,
+            equipment: &'a HashMap<String, usize>,
+        }
+        let mut routes: Vec<RouteRow> = t
+            .routes
+            .iter()
+            .map(|((system, spec), total)| RouteRow {
+                system,
+                spec,
+                length_mm: total.length_mm,
+                count: total.count,
+            })
+            .collect();
+        routes.sort_by(|a, b| a.system.cmp(b.system).then(a.spec.cmp(b.spec)));
+        emit(&Report {
+            file: path.display().to_string(),
+            total_length_mm: t.total_length_mm(),
+            routes,
+            fittings: &t.fittings,
+            equipment: &t.equipment,
+        });
+        return;
+    }
+
+    println!("{}", path.display());
+    if t.routes.is_empty() {
+        println!("  no routed runs");
+    } else {
+        println!(
+            "\n  {:<24} {:<28} {:>12} {:>8}",
+            "system", "spec", "length (mm)", "runs"
+        );
+        let mut routes: Vec<_> = t.routes.iter().collect();
+        routes.sort_by(|a, b| a.0.cmp(b.0));
+        for ((system, spec), total) in routes {
+            println!(
+                "  {system:<24} {spec:<28} {:>12.0} {:>8}",
+                total.length_mm, total.count
+            );
+        }
+        println!("\n  total length  {:.0} mm", t.total_length_mm());
+    }
+
+    if !t.equipment.is_empty() {
+        println!("\n  equipment");
+        let mut equipment: Vec<_> = t.equipment.iter().collect();
+        equipment.sort_by(|a, b| a.0.cmp(b.0));
+        for (part_id, count) in equipment {
+            println!("    {part_id:<32} {count}");
+        }
+    }
+    if !t.fittings.is_empty() {
+        println!("\n  fittings");
+        let mut fittings: Vec<_> = t.fittings.iter().collect();
+        fittings.sort_by(|a, b| a.0.cmp(b.0));
+        for (part_id, count) in fittings {
+            println!("    {part_id:<32} {count}");
+        }
+    }
+}
+
+pub fn mep_check(graph: &ConnectionGraph, path: &Path, json: bool) {
+    let unconnected = graph.unconnected();
+    if json {
+        #[derive(Serialize)]
+        struct PortRow {
+            owner: String,
+            name: String,
+            position_mm: [f64; 3],
+        }
+        #[derive(Serialize)]
+        struct Report {
+            file: String,
+            passed: bool,
+            ports: usize,
+            connections: usize,
+            unconnected: Vec<PortRow>,
+            skipped: Vec<String>,
+        }
+        emit(&Report {
+            file: path.display().to_string(),
+            passed: unconnected.is_empty() && graph.skipped().is_empty(),
+            ports: graph.ports().len(),
+            connections: graph.connections().count(),
+            unconnected: unconnected
+                .iter()
+                .map(|p| PortRow {
+                    owner: p.owner.to_string(),
+                    name: p.name.clone(),
+                    position_mm: [p.position.x, p.position.y, p.position.z],
+                })
+                .collect(),
+            skipped: graph.skipped().iter().map(ToString::to_string).collect(),
+        });
+        return;
+    }
+
+    println!("{}", path.display());
+    println!(
+        "  {} port(s), {} connection(s)",
+        graph.ports().len(),
+        graph.connections().count()
+    );
+    if unconnected.is_empty() {
+        println!("  no unconnected ports");
+    } else {
+        println!("\n  unconnected ({})", unconnected.len());
+        for p in &unconnected {
+            println!(
+                "    {}  {:<8} at ({:.0}, {:.0}, {:.0})",
+                p.owner, p.name, p.position.x, p.position.y, p.position.z
+            );
+        }
+    }
+    if !graph.skipped().is_empty() {
+        println!("\n  could not resolve ({})", graph.skipped().len());
+        for id in graph.skipped() {
+            println!("    {id}");
+        }
+    }
 }
 
 /// Reports the result of a spatial query.

@@ -7,6 +7,7 @@ members = [
     "crates/od-index",
     "crates/od-io-dxf",
     "crates/od-io-odc",
+    "crates/od-domain-mep",
     "crates/od-io-svg",
     "crates/od-parts",
     "crates/od-cli",
@@ -27,6 +28,7 @@ od-core = { path = "crates/od-core", version = "0.0.1" }
 od-index = { path = "crates/od-index", version = "0.0.1" }
 od-io-dxf = { path = "crates/od-io-dxf", version = "0.0.1" }
 od-io-odc = { path = "crates/od-io-odc", version = "0.0.1" }
+od-domain-mep = { path = "crates/od-domain-mep", version = "0.0.1" }
 od-io-svg = { path = "crates/od-io-svg", version = "0.0.1" }
 od-parts = { path = "crates/od-parts", version = "0.0.1" }
 

@@ -344,6 +344,43 @@ impl Database {
         Ok(id)
     }
 
+    /// Inserts a domain-defined object: an opaque `{type_id, data}` bag the
+    /// core stores and round-trips without interpreting.
+    ///
+    /// This is the seam a domain layer builds on instead of touching the
+    /// core's internals (`docs/03-data-model.md` §3.2, CLAUDE.md rule 1): the
+    /// core knows there is *a* type id and *some* JSON, never what either one
+    /// means. Unlike an entity, a custom object is not owned by a block record
+    /// — it is data referenced by id, not something drawn directly — so
+    /// `owner` is free-form and may be `None`.
+    pub fn insert_custom(
+        &mut self,
+        owner: Option<ObjectId>,
+        type_id: impl Into<String>,
+        data: serde_json::Value,
+    ) -> Result<ObjectId> {
+        if let Some(owner) = owner {
+            if !self.objects.contains_key(&owner) {
+                return Err(DbError::NoSuchObject(owner));
+            }
+        }
+        let id = self.ids.next_id();
+        self.objects.insert(
+            id,
+            Object {
+                id,
+                owner,
+                kind: ObjectKind::Custom {
+                    type_id: type_id.into(),
+                    data,
+                },
+                xdata: XDataMap::default(),
+                ext_dict: None,
+            },
+        );
+        Ok(id)
+    }
+
     /// Removes an object and detaches it from its owning block record.
     pub fn remove_object(&mut self, id: ObjectId) -> Result<Object> {
         let obj = self
@@ -696,6 +733,52 @@ mod tests {
         assert_eq!(db.entities_in(db.model_space()).count(), 1);
         assert_eq!(db.draw_index(id), Some(0));
         assert!(db.validate().is_empty());
+    }
+
+    #[test]
+    fn a_custom_object_round_trips_without_the_core_interpreting_it() {
+        let mut db = Database::new(ActorId::SYSTEM);
+        let payload = serde_json::json!({"kind": "example", "value": 42});
+        let id = db
+            .insert_custom(None, "org.example.thing", payload.clone())
+            .expect("inserts");
+
+        let obj = db.object(id).expect("exists");
+        assert_eq!(obj.owner, None, "unowned, since it draws nothing itself");
+        match &obj.kind {
+            ObjectKind::Custom { type_id, data } => {
+                assert_eq!(type_id, "org.example.thing");
+                assert_eq!(data, &payload);
+            }
+            other => panic!("expected Custom, got {other:?}"),
+        }
+        assert!(db.validate().is_empty());
+
+        let json = serde_json::to_string(&db).expect("serialises");
+        let back: Database = serde_json::from_str(&json).expect("deserialises");
+        assert_eq!(back.object(id).map(|o| &o.kind), Some(&obj.kind));
+    }
+
+    #[test]
+    fn a_custom_object_can_be_owned_by_another_object() {
+        let mut db = Database::new(ActorId::SYSTEM);
+        let owner = db
+            .insert_custom(None, "org.example.group", serde_json::json!({}))
+            .expect("inserts");
+        let child = db
+            .insert_custom(Some(owner), "org.example.member", serde_json::json!({}))
+            .expect("inserts");
+        assert_eq!(db.object(child).and_then(|o| o.owner), Some(owner));
+    }
+
+    #[test]
+    fn a_custom_object_cannot_claim_a_nonexistent_owner() {
+        let mut db = Database::new(ActorId::SYSTEM);
+        let bogus = ObjectId::new(ActorId(77), 77);
+        assert!(matches!(
+            db.insert_custom(Some(bogus), "org.example.thing", serde_json::json!({})),
+            Err(DbError::NoSuchObject(_))
+        ));
     }
 
     #[test]

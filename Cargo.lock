@@ -264,6 +264,7 @@ dependencies = [
  "clap",
  "indexmap",
  "od-core",
+ "od-domain-mep",
  "od-geom3d",
  "od-index",
  "od-io-dxf",
@@ -281,6 +282,19 @@ dependencies = [
  "indexmap",
  "od-geom2d",
  "od-geom3d",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "od-domain-mep"
+version = "0.0.1"
+dependencies = [
+ "od-core",
+ "od-geom3d",
+ "od-index",
+ "od-parts",
  "serde",
  "serde_json",
  "thiserror",

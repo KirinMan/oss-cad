@@ -10,6 +10,7 @@
 
 mod check;
 mod load;
+mod mep;
 mod report;
 
 use anyhow::{Context, Result};
@@ -106,6 +107,23 @@ enum Command {
         #[arg(long, global = true)]
         library: Option<PathBuf>,
     },
+
+    /// Building services (MEP) routing, take-off and connectivity checks.
+    Mep {
+        #[command(subcommand)]
+        command: MepCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum MepCommand {
+    /// Generates a small worked example: a fan, a routed duct, and the
+    /// automatic elbow the route needs — proof the domain works end to end.
+    Demo { output: PathBuf },
+    /// Reports routed lengths by system/spec and part counts by id.
+    Takeoff { input: PathBuf },
+    /// Reports unconnected ports and parts the catalogue could not resolve.
+    Check { input: PathBuf },
 }
 
 #[derive(Subcommand, Debug)]
@@ -167,6 +185,11 @@ fn main() -> Result<()> {
             count,
         } => query(&input, window.as_deref(), near.as_deref(), count, cli.json),
         Command::Parts { command, library } => parts(&command, library.as_deref(), cli.json),
+        Command::Mep { command } => match command {
+            MepCommand::Demo { output } => mep::demo(&output, cli.json),
+            MepCommand::Takeoff { input } => mep::takeoff(&input, cli.json),
+            MepCommand::Check { input } => mep::check(&input, cli.json),
+        },
     }
 }
 
