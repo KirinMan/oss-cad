@@ -26,6 +26,12 @@ pub enum Command {
     AddLine { layer: String, a: Point3, b: Point3 },
     /// Translates every named entity by the same offset.
     MoveEntities { ids: Vec<ObjectId>, delta: Vec3 },
+    /// Turns every named entity in place by the same angle, about its own
+    /// insertion point. Only a block reference carries an orientation of its
+    /// own to turn ([`crate::entity::BlockRef::rotation`]); rotating a line
+    /// or a polyline about a pivot is a different, larger feature (it needs
+    /// a pivot point, not just an angle) and is not this command.
+    RotateEntities { ids: Vec<ObjectId>, radians: f64 },
     /// Removes entities outright.
     DeleteEntities { ids: Vec<ObjectId> },
 }
@@ -68,6 +74,20 @@ impl Command {
                     outcome.modified.push(id);
                 }
             }
+            Command::RotateEntities { ids, radians } => {
+                for &id in ids {
+                    let mut handled = false;
+                    tx.modify_entity(id, |e| handled = try_rotate(&mut e.geom, *radians))?;
+                    if !handled {
+                        let geometry = tx
+                            .db()
+                            .entity(id)
+                            .map_or_else(|| "?".to_owned(), |e| e.geom.type_name().to_owned());
+                        return Err(DbError::UnsupportedEdit { id, geometry });
+                    }
+                    outcome.modified.push(id);
+                }
+            }
             Command::DeleteEntities { ids } => {
                 for &id in ids {
                     tx.remove(id)?;
@@ -84,6 +104,13 @@ impl Command {
 /// handle must fail the move loudly ([`DbError::UnsupportedEdit`]) rather than
 /// silently stay put, which would look like the command succeeded while the
 /// entity never moved.
+///
+/// [`Geometry::Solid3d`] and [`Geometry::Unsupported`] are the two kinds this
+/// deliberately never will handle: the former is an opaque kernel handle
+/// `od-core` has no business reaching into, and the latter is preserved
+/// verbatim precisely because this build does not understand its shape
+/// (rule 2 — never destroy what you cannot read) — translating it by
+/// guesswork would be exactly that.
 fn try_translate(geom: &mut Geometry, delta: Vec3) -> bool {
     match geom {
         Geometry::Point(p) => *p = *p + delta,
@@ -91,11 +118,55 @@ fn try_translate(geom: &mut Geometry, delta: Vec3) -> bool {
             *a = *a + delta;
             *b = *b + delta;
         }
-        Geometry::Circle { center, .. } | Geometry::Arc { center, .. } => *center = *center + delta,
+        Geometry::Circle { center, .. }
+        | Geometry::Arc { center, .. }
+        | Geometry::Ellipse { center, .. } => *center = *center + delta,
         // Equipment and fittings are placed as block references
         // (`docs/04-mep.md`), so moving one is the common case of moving a
         // piece of MEP content, not a rare one.
         Geometry::BlockRef(block_ref) => block_ref.position = block_ref.position + delta,
+        Geometry::Text(t) => t.position = t.position + delta,
+        Geometry::MText(t) => t.position = t.position + delta,
+        Geometry::Polyline {
+            polyline,
+            elevation,
+            ..
+        } => {
+            for v in &mut polyline.vertices {
+                v.point.x += delta.x;
+                v.point.y += delta.y;
+            }
+            *elevation += delta.z;
+        }
+        Geometry::Polyline3d { points, .. } => {
+            for p in points {
+                *p = *p + delta;
+            }
+        }
+        Geometry::Spline { control_points, .. } => {
+            for p in control_points {
+                *p = *p + delta;
+            }
+        }
+        Geometry::Hatch(hatch) => {
+            for l in &mut hatch.loops {
+                for v in &mut l.vertices {
+                    v.point.x += delta.x;
+                    v.point.y += delta.y;
+                }
+            }
+            hatch.elevation += delta.z;
+        }
+        _ => return false,
+    }
+    true
+}
+
+/// Turns geometry in place, and reports whether it knew how to — the
+/// rotational counterpart of [`try_translate`], narrow for the same reason.
+fn try_rotate(geom: &mut Geometry, radians: f64) -> bool {
+    match geom {
+        Geometry::BlockRef(block_ref) => block_ref.rotation += radians,
         _ => return false,
     }
     true
@@ -191,13 +262,17 @@ mod tests {
         let mut d = doc();
         let layer = d.db.ensure_layer("0");
         let space = d.db.model_space();
+        // Preserved-verbatim data is the one kind this must never touch:
+        // translating it by guesswork is exactly what preserving it verbatim
+        // exists to prevent (rule 2 — never destroy what you cannot read).
         let id =
             d.db.insert_entity(Entity::new(
                 layer,
                 space,
-                Geometry::Polyline3d {
-                    points: vec![Point3::ORIGIN, Point3::new(1.0, 0.0, 0.0)],
-                    closed: false,
+                Geometry::Unsupported {
+                    source_type: "ACAD_TABLE".into(),
+                    payload: vec![1, 2, 3],
+                    proxy: vec![],
                 },
             ))
             .expect("inserts");
@@ -249,6 +324,131 @@ mod tests {
             panic!("still a block reference");
         };
         assert_eq!(block_ref.position, Point3::new(1500.0, 1500.0, 0.0));
+    }
+
+    #[test]
+    fn moving_a_polyline_shifts_its_vertices_and_elevation() {
+        use od_geom2d::{Point2, Polyline2, Vertex};
+
+        let mut d = doc();
+        let layer = d.db.ensure_layer("0");
+        let space = d.db.model_space();
+        let id =
+            d.db.insert_entity(Entity::new(
+                layer,
+                space,
+                Geometry::Polyline {
+                    polyline: Polyline2::from_points(
+                        [Point2::new(0.0, 0.0), Point2::new(100.0, 0.0)],
+                        false,
+                    ),
+                    elevation: 500.0,
+                    normal: Vec3::Z,
+                    width: 0.0,
+                },
+            ))
+            .expect("inserts");
+
+        d.execute(
+            "Move",
+            &Command::MoveEntities {
+                ids: vec![id],
+                delta: Vec3::new(10.0, 20.0, 30.0),
+            },
+        )
+        .expect("commits");
+
+        let Geometry::Polyline {
+            polyline,
+            elevation,
+            ..
+        } = &d.db.entity(id).expect("exists").geom
+        else {
+            panic!("still a polyline");
+        };
+        assert_eq!(
+            polyline.vertices,
+            vec![
+                Vertex::straight(Point2::new(10.0, 20.0)),
+                Vertex::straight(Point2::new(110.0, 20.0)),
+            ]
+        );
+        assert!(od_geom2d::tol::eq_len(*elevation, 530.0));
+    }
+
+    #[test]
+    fn rotate_entities_turns_a_block_reference_in_place_and_undo_restores() {
+        use crate::entity::BlockRef;
+
+        let mut d = doc();
+        let layer = d.db.ensure_layer("0");
+        let space = d.db.model_space();
+        let block = d.db.ensure_block("hvac.fan.sirocco");
+        let id =
+            d.db.insert_entity(Entity::new(
+                layer,
+                space,
+                Geometry::BlockRef(Box::new(BlockRef {
+                    block,
+                    position: Point3::new(1000.0, 2000.0, 0.0),
+                    scale: Vec3::new(1.0, 1.0, 1.0),
+                    rotation: 0.0,
+                    attributes: vec![],
+                    array: (1, 1),
+                    array_spacing: (0.0, 0.0),
+                })),
+            ))
+            .expect("inserts");
+
+        d.execute(
+            "Rotate",
+            &Command::RotateEntities {
+                ids: vec![id],
+                radians: std::f64::consts::FRAC_PI_2,
+            },
+        )
+        .expect("commits");
+
+        let Geometry::BlockRef(block_ref) = &d.db.entity(id).expect("exists").geom else {
+            panic!("still a block reference");
+        };
+        assert!(od_geom2d::tol::eq_len(
+            block_ref.rotation,
+            std::f64::consts::FRAC_PI_2
+        ));
+        // Rotating in place must not move it.
+        assert_eq!(block_ref.position, Point3::new(1000.0, 2000.0, 0.0));
+
+        assert_eq!(d.undo().as_deref(), Some("Rotate"));
+        let Geometry::BlockRef(block_ref) = &d.db.entity(id).expect("exists").geom else {
+            panic!("still a block reference");
+        };
+        assert!(od_geom2d::tol::eq_len(block_ref.rotation, 0.0));
+    }
+
+    #[test]
+    fn rotating_a_line_fails_loudly_rather_than_silently() {
+        let mut d = doc();
+        let outcome = d
+            .execute(
+                "Draw",
+                &Command::AddLine {
+                    layer: "0".into(),
+                    a: Point3::ORIGIN,
+                    b: Point3::new(1000.0, 0.0, 0.0),
+                },
+            )
+            .expect("commits");
+        let id = outcome.created[0];
+
+        let result = d.execute(
+            "Rotate",
+            &Command::RotateEntities {
+                ids: vec![id],
+                radians: 1.0,
+            },
+        );
+        assert!(matches!(result, Err(DbError::UnsupportedEdit { .. })));
     }
 
     #[test]

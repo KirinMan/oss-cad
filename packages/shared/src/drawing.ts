@@ -94,6 +94,11 @@ export const commandSchema = z.discriminatedUnion('kind', [
     delta: point3Schema,
   }),
   z.object({
+    kind: z.literal('rotate_entities'),
+    ids: z.array(z.string()),
+    radians: z.number(),
+  }),
+  z.object({
     kind: z.literal('delete_entities'),
     ids: z.array(z.string()),
   }),
