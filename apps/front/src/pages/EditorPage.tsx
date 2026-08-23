@@ -22,8 +22,14 @@ import { editDrawing, queryNear, renderDrawingWithViewBox } from '../api.ts';
  * rendered `<img>`, which is untrusted content and is never inlined into the
  * page (CLAUDE.md), so there is no clickable DOM to hit-test against in the
  * first place. Snap candidates are re-queried on a debounce while the pointer
- * moves, not on every `mousemove` — a network round trip per pixel would
- * make the canvas feel like it is wading through mud.
+ * moves, not on every `pointermove` — a round trip per pixel would make the
+ * canvas feel like it is wading through mud.
+ *
+ * The select tool's pointer handler does triple duty — plain click
+ * (re)selects, shift-click toggles an entity into or out of the selection,
+ * and a drag past a small threshold moves the whole selection — because all
+ * three start the same way (a `pointerdown` somewhere on the canvas) and only
+ * `pointerup` reveals which one actually happened.
  */
 
 interface Snapshot {
@@ -33,20 +39,32 @@ interface Snapshot {
 }
 
 type Tool = 'line' | 'select';
+type WorldPoint = { x: number; y: number };
 
 const DEFAULT_LAYER = 'A-EDIT';
 /** How close, in screen pixels, a candidate has to be before it "grabs" the cursor. */
 const SNAP_RADIUS_PX = 12;
 /** How long to wait after the pointer stops before asking the server what is nearby. */
 const SNAP_DEBOUNCE_MS = 100;
+/** How far the pointer has to move before a pointerdown becomes a drag. */
+const DRAG_THRESHOLD_PX = 4;
+/** How close a click has to land to an entity's bounds before it counts as picking it. */
+const PICK_RADIUS_PX = 20;
+
+interface DragState {
+  downClient: { x: number; y: number };
+  downWorld: WorldPoint;
+  shift: boolean;
+  moved: boolean;
+}
 
 export function EditorPage() {
   const [current, setCurrent] = useState<Snapshot | null>(null);
   const [history, setHistory] = useState<Snapshot[]>([]);
   const [tool, setTool] = useState<Tool>('line');
-  const [pendingStart, setPendingStart] = useState<{ x: number; y: number } | null>(null);
-  const [selection, setSelection] = useState<QueryHit | null>(null);
-  const [moving, setMoving] = useState(false);
+  const [pendingStart, setPendingStart] = useState<WorldPoint | null>(null);
+  const [selection, setSelection] = useState<QueryHit[]>([]);
+  const [drag, setDrag] = useState<DragState | null>(null);
   const [layer, setLayer] = useState(DEFAULT_LAYER);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -63,8 +81,8 @@ export function EditorPage() {
 
   function resetInteraction() {
     setPendingStart(null);
-    setSelection(null);
-    setMoving(false);
+    setSelection([]);
+    setDrag(null);
     setHoverPoint(null);
     setSnapCandidates([]);
   }
@@ -94,19 +112,29 @@ export function EditorPage() {
       setCurrent({ file: result.document, url: result.url, viewBox: result.viewBox });
       // The cached selection's bounds are for the document before this edit;
       // stale bounds would draw the highlight in the wrong place.
-      setSelection(null);
-      setMoving(false);
+      setSelection([]);
     },
     onError: (e: Error) => setError(e.message),
   });
 
   const pick = useMutation({
-    mutationFn: async (point: { x: number; y: number }) => {
+    mutationFn: async ({ point }: { point: WorldPoint; shift: boolean }) => {
       if (!current) throw new Error('先に図面を開いてください');
+      const fit = getFit();
       const [hit] = await queryNear(current.file, point, 1);
-      return hit ?? null;
+      if (!hit || !fit) return null;
+      const maxWorld = PICK_RADIUS_PX / fit.scale;
+      return distanceToBounds(point, hit.bounds_mm) <= maxWorld ? hit : null;
     },
-    onSuccess: (hit) => setSelection(hit),
+    onSuccess: (hit, { shift }) => {
+      setSelection((prev) => {
+        if (!hit) return shift ? prev : [];
+        if (!shift) return [hit];
+        return prev.some((p) => p.id === hit.id)
+          ? prev.filter((p) => p.id !== hit.id)
+          : [...prev, hit];
+      });
+    },
     onError: (e: Error) => setError(e.message),
   });
 
@@ -126,9 +154,9 @@ export function EditorPage() {
     resetInteraction();
   }
 
-  /** True while a click places a point precisely — where object snap applies. */
+  /** True while a pointer action is about to place a point precisely — where object snap applies. */
   function wantsSnap(): boolean {
-    return tool === 'line' || (tool === 'select' && moving);
+    return tool === 'line' || (tool === 'select' && drag?.moved === true);
   }
 
   /**
@@ -153,7 +181,7 @@ export function EditorPage() {
    * reliable natural size across browsers, but its aspect ratio is exact, and
    * `object-contain` only ever needs the aspect ratio to decide the fit.
    */
-  function toWorld(clientX: number, clientY: number): { x: number; y: number } | null {
+  function toWorld(clientX: number, clientY: number): WorldPoint | null {
     const fit = getFit();
     if (!fit) return null;
     const svgX = (clientX - fit.box.left - fit.offsetX) / fit.scale + fit.vbX;
@@ -171,19 +199,13 @@ export function EditorPage() {
     };
   }
 
-  /** The drawing-space point a move's delta is measured from. */
-  function selectionAnchor(hit: QueryHit): { x: number; y: number } {
-    const [minX, minY, , maxX, maxY] = hit.bounds_mm;
-    return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-  }
-
   // ── Object snap ────────────────────────────────────────────────────────
   //
   // The cursor's raw world position, and the entities the server last found
   // near it. A snap point is derived from these two in the effect below,
   // rather than stored directly, so it always reflects the current
   // container layout rather than whatever it was when the query resolved.
-  const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null);
+  const [hoverPoint, setHoverPoint] = useState<WorldPoint | null>(null);
   const [snapCandidates, setSnapCandidates] = useState<QueryHit[]>([]);
   const snapTimer = useRef<number | null>(null);
 
@@ -193,11 +215,18 @@ export function EditorPage() {
     };
   }, []);
 
-  function onCanvasMouseMove(e: React.MouseEvent) {
+  function onCanvasPointerMove(e: React.PointerEvent) {
     const point = toWorld(e.clientX, e.clientY);
     setHoverPoint(point);
-    if (!point || !current || !wantsSnap()) return;
 
+    if (drag && !drag.moved) {
+      const moved =
+        Math.hypot(e.clientX - drag.downClient.x, e.clientY - drag.downClient.y) >
+        DRAG_THRESHOLD_PX;
+      if (moved) setDrag({ ...drag, moved: true });
+    }
+
+    if (!point || !current || !wantsSnap()) return;
     if (snapTimer.current !== null) window.clearTimeout(snapTimer.current);
     const file = current.file;
     snapTimer.current = window.setTimeout(() => {
@@ -209,46 +238,75 @@ export function EditorPage() {
     }, SNAP_DEBOUNCE_MS);
   }
 
-  function onCanvasMouseLeave() {
-    setHoverPoint(null);
+  function onCanvasPointerLeave() {
+    if (!drag) setHoverPoint(null);
   }
 
   function onCanvasClick(e: React.MouseEvent) {
-    if (!current || edit.isPending || pick.isPending) return;
+    if (tool !== 'line' || !current || edit.isPending) return;
     const point = snapPoint?.world ?? toWorld(e.clientX, e.clientY);
     if (!point) return;
 
-    if (tool === 'line') {
-      if (!pendingStart) {
-        setPendingStart(point);
-        return;
-      }
-      edit.mutate({
-        kind: 'add_line',
-        layer,
-        a: { x: pendingStart.x, y: pendingStart.y, z: 0 },
-        b: { x: point.x, y: point.y, z: 0 },
-      });
-      setPendingStart(null);
+    if (!pendingStart) {
+      setPendingStart(point);
       return;
     }
+    edit.mutate({
+      kind: 'add_line',
+      layer,
+      a: { x: pendingStart.x, y: pendingStart.y, z: 0 },
+      b: { x: point.x, y: point.y, z: 0 },
+    });
+    setPendingStart(null);
+  }
 
-    // tool === 'select'
-    if (moving && selection) {
-      const anchor = selectionAnchor(selection);
+  function onCanvasPointerDown(e: React.PointerEvent) {
+    if (tool !== 'select' || !current || edit.isPending) return;
+    const world = toWorld(e.clientX, e.clientY);
+    if (!world) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag({
+      downClient: { x: e.clientX, y: e.clientY },
+      downWorld: world,
+      shift: e.shiftKey,
+      moved: false,
+    });
+  }
+
+  function onCanvasPointerUp(e: React.PointerEvent) {
+    if (tool !== 'select' || !drag || !current) {
+      setDrag(null);
+      return;
+    }
+    const upPoint = snapPoint?.world ?? toWorld(e.clientX, e.clientY);
+    const { moved, shift, downWorld } = drag;
+    setDrag(null);
+    if (!upPoint) return;
+
+    if (moved) {
+      if (selection.length === 0) return;
       edit.mutate({
         kind: 'move_entities',
-        ids: [selection.id],
-        delta: { x: point.x - anchor.x, y: point.y - anchor.y, z: 0 },
+        ids: selection.map((s) => s.id),
+        delta: { x: upPoint.x - downWorld.x, y: upPoint.y - downWorld.y, z: 0 },
       });
       return;
     }
-    pick.mutate(point);
+    pick.mutate({ point: upPoint, shift });
   }
 
   function deleteSelection() {
-    if (!selection) return;
-    edit.mutate({ kind: 'delete_entities', ids: [selection.id] });
+    if (selection.length === 0) return;
+    edit.mutate({ kind: 'delete_entities', ids: selection.map((s) => s.id) });
+  }
+
+  function rotateSelection(degrees: number) {
+    if (selection.length === 0) return;
+    edit.mutate({
+      kind: 'rotate_entities',
+      ids: selection.map((s) => s.id),
+      radians: (degrees * Math.PI) / 180,
+    });
   }
 
   // Delete/Backspace removes the current selection — but not while a text
@@ -259,7 +317,7 @@ export function EditorPage() {
       const target = e.target;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)
         return;
-      if (!selection || edit.isPending) return;
+      if (selection.length === 0 || edit.isPending) return;
       e.preventDefault();
       deleteSelection();
     }
@@ -268,21 +326,19 @@ export function EditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection, edit.isPending]);
 
-  // Overlay geometry — the pending line's start marker, the selected
-  // entity's bounding box, and the live snap indicator. Computed in an
-  // effect rather than during render: all three read the container's live
-  // layout through the ref, which render must not do.
+  // Overlay geometry — the pending line's start marker, every selected
+  // entity's bounding box (and, while dragging, a translated ghost of each),
+  // and the live snap indicator. Computed in an effect rather than during
+  // render: all of it reads the container's live layout through the ref,
+  // which render must not do.
+  type Box = { left: number; top: number; width: number; height: number };
   const [marker, setMarker] = useState<{ left: number; top: number } | null>(null);
-  const [selectionBox, setSelectionBox] = useState<{
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  } | null>(null);
+  const [selectionBoxes, setSelectionBoxes] = useState<Box[]>([]);
+  const [ghostBoxes, setGhostBoxes] = useState<Box[]>([]);
   const [snapPoint, setSnapPoint] = useState<{
     left: number;
     top: number;
-    world: { x: number; y: number };
+    world: WorldPoint;
   } | null>(null);
 
   useEffect(() => {
@@ -294,53 +350,69 @@ export function EditorPage() {
     const fit = containerRef.current ? getFit() : null;
     if (!current || !fit) {
       setMarker(null);
-      setSelectionBox(null);
+      setSelectionBoxes([]);
+      setGhostBoxes([]);
       setSnapPoint(null);
       return;
     }
 
     setMarker(pendingStart ? toScreen(fit, pendingStart.x, pendingStart.y) : null);
 
-    if (!selection) {
-      setSelectionBox(null);
-    } else {
-      const [minX, minY, , maxX, maxY] = selection.bounds_mm;
+    const boxes = selection.map((hit): Box => {
+      const [minX, minY, , maxX, maxY] = hit.bounds_mm;
       // The SVG's Y-flip means the drawing's top edge (max Y) is the
       // screen's top edge.
       const topLeft = toScreen(fit, minX, maxY);
       const bottomRight = toScreen(fit, maxX, minY);
-      setSelectionBox({
+      return {
         left: topLeft.left,
         top: topLeft.top,
         width: Math.max(bottomRight.left - topLeft.left, 2),
         height: Math.max(bottomRight.top - topLeft.top, 2),
-      });
-    }
+      };
+    });
+    setSelectionBoxes(boxes);
 
-    if (!hoverPoint || !wantsSnap()) {
-      setSnapPoint(null);
-      return;
-    }
-    const thresholdWorld = SNAP_RADIUS_PX / fit.scale;
-    let best: { x: number; y: number; dist: number } | null = null;
-    for (const hit of snapCandidates) {
-      for (const [x, y] of hit.snap_points_mm) {
-        const dist = Math.hypot(x - hoverPoint.x, y - hoverPoint.y);
-        if (dist <= thresholdWorld && (!best || dist < best.dist)) best = { x, y, dist };
+    let snap: { left: number; top: number; world: WorldPoint } | null = null;
+    if (hoverPoint && wantsSnap()) {
+      const thresholdWorld = SNAP_RADIUS_PX / fit.scale;
+      let best: { x: number; y: number; dist: number } | null = null;
+      for (const hit of snapCandidates) {
+        for (const [x, y] of hit.snap_points_mm) {
+          const dist = Math.hypot(x - hoverPoint.x, y - hoverPoint.y);
+          if (dist <= thresholdWorld && (!best || dist < best.dist))
+            best = { x, y, dist };
+        }
       }
+      snap = best
+        ? { ...toScreen(fit, best.x, best.y), world: { x: best.x, y: best.y } }
+        : null;
     }
-    setSnapPoint(
-      best ? { ...toScreen(fit, best.x, best.y), world: { x: best.x, y: best.y } } : null,
-    );
+    setSnapPoint(snap);
+
+    if (drag?.moved && selection.length > 0) {
+      const live = snap?.world ?? hoverPoint;
+      if (live) {
+        const dx = (live.x - drag.downWorld.x) * fit.scale;
+        const dy = -(live.y - drag.downWorld.y) * fit.scale;
+        setGhostBoxes(boxes.map((b) => ({ ...b, left: b.left + dx, top: b.top + dy })));
+      } else {
+        setGhostBoxes([]);
+      }
+    } else {
+      setGhostBoxes([]);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingStart, selection, hoverPoint, snapCandidates, tool, moving, current]);
+  }, [pendingStart, selection, hoverPoint, snapCandidates, drag, tool, current]);
+
+  const canRotate = selection.length > 0 && selection.every((s) => s.kind === 'blockref');
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">図面を編集する</h1>
         <p className="mt-1 max-w-2xl text-sm text-ink-muted">
-          線分ツールはクリックで始点、もう一度クリックで終点を指定します。既存の端点・中点・中心に近づくと吸着します。選択ツールはクリックで最も近いエンティティを選び、移動または削除できます。ファイルはこのブラウザだけが保持し、編集のたびに送り直されます
+          線分ツールはクリックで始点、もう一度クリックで終点を指定します。選択ツールはクリックで最も近いエンティティを選び（Shiftクリックで複数選択）、ドラッグで移動、Deleteキーまたはボタンで削除します。既存の端点・中点・中心に近づくと吸着します。ファイルはこのブラウザだけが保持し、編集のたびに送り直されます
           — サーバには残りません。
         </p>
       </div>
@@ -405,21 +477,30 @@ export function EditorPage() {
                 <span>始点をクリック</span>
               ))}
 
-            {tool === 'select' && !selection && (
-              <span>エンティティをクリックして選択</span>
+            {tool === 'select' && selection.length === 0 && (
+              <span>クリックで選択（Shiftで複数選択）</span>
             )}
-            {tool === 'select' && selection && !moving && (
+            {tool === 'select' && selection.length > 0 && (
               <>
-                <span>
-                  選択中: {selection.kind}（{selection.layer}）
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setMoving(true)}
-                  className="rounded border border-rule px-2 py-1 text-ink"
-                >
-                  移動先をクリック
-                </button>
+                <span>選択中: {selection.length}件（ドラッグで移動）</span>
+                {canRotate && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => rotateSelection(-90)}
+                      className="rounded border border-rule px-2 py-1 text-ink"
+                    >
+                      ↺90°
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => rotateSelection(90)}
+                      className="rounded border border-rule px-2 py-1 text-ink"
+                    >
+                      ↻90°
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={deleteSelection}
@@ -429,7 +510,6 @@ export function EditorPage() {
                 </button>
               </>
             )}
-            {tool === 'select' && selection && moving && <span>移動先をクリック</span>}
             {snapPoint && (
               <span className="text-sys-hydronic">
                 スナップ中 ({snapPoint.world.x.toFixed(0)}, {snapPoint.world.y.toFixed(0)}
@@ -451,10 +531,15 @@ export function EditorPage() {
           <div
             ref={containerRef}
             onClick={onCanvasClick}
-            onMouseMove={onCanvasMouseMove}
-            onMouseLeave={onCanvasMouseLeave}
+            onPointerDown={onCanvasPointerDown}
+            onPointerMove={onCanvasPointerMove}
+            onPointerUp={onCanvasPointerUp}
+            onPointerLeave={onCanvasPointerLeave}
             className="relative h-[32rem] overflow-hidden rounded border border-rule bg-paper-raised"
-            style={{ cursor: edit.isPending || pick.isPending ? 'wait' : 'crosshair' }}
+            style={{
+              cursor: edit.isPending || pick.isPending ? 'wait' : 'crosshair',
+              touchAction: 'none',
+            }}
           >
             <img
               src={current.url}
@@ -468,12 +553,20 @@ export function EditorPage() {
                 style={marker}
               />
             )}
-            {selectionBox && (
+            {selectionBoxes.map((box, i) => (
               <div
+                key={selection[i]?.id ?? i}
                 className="pointer-events-none absolute border-2 border-dashed border-accent"
-                style={selectionBox}
+                style={box}
               />
-            )}
+            ))}
+            {ghostBoxes.map((box, i) => (
+              <div
+                key={selection[i]?.id ?? i}
+                className="pointer-events-none absolute border-2 border-accent bg-accent/20"
+                style={box}
+              />
+            ))}
             {snapPoint && (
               <div
                 className="pointer-events-none absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 border-sys-hydronic bg-paper-raised"
@@ -485,6 +578,17 @@ export function EditorPage() {
       )}
     </div>
   );
+}
+
+/** Distance from `point` to the nearest point on or in `bounds` — zero when `point` is inside. */
+function distanceToBounds(
+  point: WorldPoint,
+  bounds: readonly [number, number, number, number, number, number],
+): number {
+  const [minX, minY, , maxX, maxY] = bounds;
+  const dx = Math.max(minX - point.x, 0, point.x - maxX);
+  const dy = Math.max(minY - point.y, 0, point.y - maxY);
+  return Math.hypot(dx, dy);
 }
 
 function ToolButton({
