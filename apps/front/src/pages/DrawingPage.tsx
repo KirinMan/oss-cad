@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import type { CheckReport, Inspection } from '@opendraft/shared';
 import { checkDrawing, inspectDrawing, saveDrawing, type SaveFormat } from '../api.ts';
+import { DrawingViewer } from '../components/DrawingViewer.tsx';
 
 /**
  * Open a drawing, see what is in it, check it, and save it.
@@ -16,6 +17,8 @@ import { checkDrawing, inspectDrawing, saveDrawing, type SaveFormat } from '../a
 export function DrawingPage() {
   const [file, setFile] = useState<File | null>(null);
   const [rules, setRules] = useState<'basic' | 'jp'>('jp');
+  const [dark, setDark] = useState(false);
+  const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
 
   const analysis = useMutation({
     mutationFn: async (f: File) => {
@@ -44,8 +47,21 @@ export function DrawingPage() {
 
   function onSelect(f: File | null) {
     setFile(f);
+    setHiddenLayers(new Set());
     analysis.reset();
     if (f) analysis.mutate(f);
+  }
+
+  const allLayers = analysis.data?.inspection.layer_names ?? [];
+  const visibleLayers = new Set(allLayers.filter((n) => !hiddenLayers.has(n)));
+
+  function toggleLayer(name: string) {
+    setHiddenLayers((hidden) => {
+      const next = new Set(hidden);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
   }
 
   return (
@@ -101,6 +117,52 @@ export function DrawingPage() {
 
       {analysis.data && file && (
         <div className="space-y-6">
+          <section className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <h2 className="text-xs font-semibold tracking-widest text-ink-muted uppercase">
+                図面
+              </h2>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={dark}
+                  onChange={(e) => setDark(e.target.checked)}
+                />
+                暗い背景
+              </label>
+            </div>
+
+            <DrawingViewer
+              file={file}
+              layers={allLayers}
+              visibleLayers={visibleLayers}
+              dark={dark}
+            />
+
+            {allLayers.length > 1 && (
+              <div className="flex flex-wrap gap-1">
+                {allLayers.map((name) => {
+                  const shown = !hiddenLayers.has(name);
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => toggleLayer(name)}
+                      aria-pressed={shown}
+                      className={`rounded border px-2 py-0.5 font-mono text-xs transition-colors ${
+                        shown
+                          ? 'border-rule bg-paper-raised text-ink'
+                          : 'border-transparent bg-rule/30 text-ink-muted line-through'
+                      }`}
+                    >
+                      {name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
           <SaveBar
             busy={save.isPending}
             result={save.data ?? null}

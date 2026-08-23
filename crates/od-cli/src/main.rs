@@ -63,6 +63,41 @@ enum Command {
         #[arg(long, value_name = "FORMAT")]
         via: Option<String>,
     },
+    /// Render a drawing to SVG.
+    ///
+    /// SVG needs no GPU and opens in anything, which makes it how a drawing
+    /// becomes visible before the editing canvas exists.
+    Render {
+        input: PathBuf,
+        output: PathBuf,
+        /// Only draw this window: `x1,y1,x2,y2` in drawing millimetres.
+        #[arg(long, value_name = "X1,Y1,X2,Y2")]
+        window: Option<String>,
+        /// Only draw these layers, comma-separated.
+        #[arg(long, value_delimiter = ',')]
+        layers: Option<Vec<String>>,
+        /// Render on a dark canvas rather than white paper.
+        #[arg(long)]
+        dark: bool,
+        /// Pixel width. Without it the SVG scales to its container.
+        #[arg(long, value_name = "PX")]
+        width: Option<u32>,
+    },
+
+    /// Find entities by position, through the spatial index.
+    Query {
+        input: PathBuf,
+        /// Entities meeting this window: `x1,y1,x2,y2`.
+        #[arg(long, value_name = "X1,Y1,X2,Y2", conflicts_with = "near")]
+        window: Option<String>,
+        /// Entities nearest this point: `x,y`.
+        #[arg(long, value_name = "X,Y")]
+        near: Option<String>,
+        /// How many to return for `--near`.
+        #[arg(long, default_value_t = 10)]
+        count: usize,
+    },
+
     /// Browse the part catalogue.
     Parts {
         #[command(subcommand)]
@@ -109,6 +144,28 @@ fn main() -> Result<()> {
         Command::Inspect { input } => inspect(&input, cli.json),
         Command::Check { input, rules } => check_drawing(&input, rules, cli.json),
         Command::Roundtrip { input, via } => roundtrip(&input, via, cli.json),
+        Command::Render {
+            input,
+            output,
+            window,
+            layers,
+            dark,
+            width,
+        } => render(
+            &input,
+            &output,
+            window.as_deref(),
+            layers,
+            dark,
+            width,
+            cli.json,
+        ),
+        Command::Query {
+            input,
+            window,
+            near,
+            count,
+        } => query(&input, window.as_deref(), near.as_deref(), count, cli.json),
         Command::Parts { command, library } => parts(&command, library.as_deref(), cli.json),
     }
 }
@@ -190,6 +247,88 @@ fn roundtrip(input: &std::path::Path, via: Option<String>, json: bool) -> Result
     if diff {
         std::process::exit(1);
     }
+    Ok(())
+}
+
+/// `x1,y1,x2,y2` in drawing millimetres, as a window of any height — plan views
+/// are how these are always specified.
+fn parse_window(text: &str) -> Result<od_geom3d::Aabb3> {
+    let parts: Vec<f64> = text
+        .split(',')
+        .map(|v| v.trim().parse::<f64>())
+        .collect::<std::result::Result<_, _>>()
+        .with_context(|| format!("`{text}` should be four numbers: x1,y1,x2,y2"))?;
+    let [x1, y1, x2, y2] = parts.as_slice() else {
+        anyhow::bail!("`{text}` should be four numbers: x1,y1,x2,y2");
+    };
+    Ok(od_geom3d::Aabb3::new(
+        od_core::Point3::new(*x1, *y1, f64::NEG_INFINITY),
+        od_core::Point3::new(*x2, *y2, f64::INFINITY),
+    ))
+}
+
+fn parse_point(text: &str) -> Result<od_core::Point3> {
+    let parts: Vec<f64> = text
+        .split(',')
+        .map(|v| v.trim().parse::<f64>())
+        .collect::<std::result::Result<_, _>>()
+        .with_context(|| format!("`{text}` should be two or three numbers"))?;
+    match parts.as_slice() {
+        [x, y] => Ok(od_core::Point3::new(*x, *y, 0.0)),
+        [x, y, z] => Ok(od_core::Point3::new(*x, *y, *z)),
+        _ => anyhow::bail!("`{text}` should be two or three numbers"),
+    }
+}
+
+fn render(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    window: Option<&str>,
+    layers: Option<Vec<String>>,
+    dark: bool,
+    width: Option<u32>,
+    json: bool,
+) -> Result<()> {
+    let (db, _) = load::load(input)?;
+
+    let mut options = od_io_svg::SvgOptions {
+        background: if dark {
+            od_io_svg::Background::Dark
+        } else {
+            od_io_svg::Background::Paper
+        },
+        width_px: width,
+        layers,
+        ..Default::default()
+    };
+    if let Some(text) = window {
+        options.window = Some(parse_window(text)?);
+    }
+
+    let svg = od_io_svg::to_svg(&db, &options);
+    std::fs::write(output, &svg).with_context(|| format!("writing {}", output.display()))?;
+
+    report::render(&db, input, output, svg.len(), json);
+    Ok(())
+}
+
+fn query(
+    input: &std::path::Path,
+    window: Option<&str>,
+    near: Option<&str>,
+    count: usize,
+    json: bool,
+) -> Result<()> {
+    let (db, _) = load::load(input)?;
+    let index = od_index::DrawingIndex::of_model_space(&db);
+
+    let found = match (window, near) {
+        (Some(text), _) => index.query(&db, parse_window(text)?),
+        (None, Some(text)) => index.nearest(parse_point(text)?, count),
+        (None, None) => anyhow::bail!("give either --window or --near"),
+    };
+
+    report::query(&db, &found, index.len(), json);
     Ok(())
 }
 

@@ -122,6 +122,47 @@ export async function checkDrawing(
   });
 }
 
+export interface RenderOptions {
+  dark?: boolean;
+  layers?: string[];
+  /** `x1,y1,x2,y2` in drawing millimetres. */
+  window?: string;
+}
+
+/**
+ * Renders a drawing and returns an object URL for it.
+ *
+ * The SVG is shown in an `<img>` rather than inlined, so scripts inside a
+ * drawing someone sent us cannot run. Callers must revoke the URL when done.
+ */
+export async function renderDrawing(
+  file: File,
+  options: RenderOptions = {},
+): Promise<string> {
+  const params = new URLSearchParams();
+  if (options.dark) params.set('dark', '1');
+  if (options.layers?.length) params.set('layers', options.layers.join(','));
+  if (options.window) params.set('window', options.window);
+
+  const form = new FormData();
+  form.set('file', file);
+
+  const suffix = params.size > 0 ? `?${params.toString()}` : '';
+  const res = await fetch(`/api/drawings/render${suffix}`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as ApiError | null;
+    throw new ApiRequestError(
+      body?.error ?? `render failed with ${res.status}`,
+      res.status,
+      body?.detail,
+    );
+  }
+  return URL.createObjectURL(await res.blob());
+}
+
 /** Formats a drawing can be saved as. */
 export type SaveFormat = 'odc' | 'dxf' | 'json';
 
