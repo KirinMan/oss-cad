@@ -1,0 +1,27 @@
+[package]
+name = "od-io-odc"
+description = "The OpenDraft document container (.odc): a ZIP of separately-readable parts, with a compatibility contract that stops an older build from silently discarding what a newer one wrote."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ciborium = "0.2.2"
+od-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# Stored entries only — the payloads are compressed individually with zstd, so
+# none of zip's own codecs (and their dependency trees) are needed.
+zip = { version = "7", default-features = false }
+zstd = "0.13.3"
+
+[dev-dependencies]
+od-io-dxf = { workspace = true }
+zip = { version = "7", default-features = false }
+
+[lints]
+workspace = true

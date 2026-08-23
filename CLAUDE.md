@@ -14,6 +14,7 @@ crates/          Rust: the engine
   od-geom3d      3D primitives and the SolidKernel trait (no B-rep bundled).
   od-core        The document model: Database, entities, tables, transactions.
   od-io-dxf      DXF reader and writer, written in-house.
+  od-io-odc      The native .odc container, and its compatibility contract.
   od-parts       Parametric part library + the bundled catalogue loader.
   od-cli         `od` — convert, inspect, check, roundtrip, parts.
 parts/           The catalogue itself: systems, specs, parts (JSON).
@@ -70,8 +71,15 @@ causes damage that is hard to see and hard to undo.
    loudest complaint.
 
 6. **The round-trip tests are a gate, not a nicety.**
-   `crates/od-io-dxf/tests/roundtrip.rs`. If a change makes a drawing differ
+   `crates/od-io-dxf/tests/roundtrip.rs` and
+   `crates/od-io-odc/tests/compatibility.rs`. If a change makes a drawing differ
    after read → write → read, the change is wrong.
+
+   The `.odc` side additionally tests what happens to a file written by a
+   *newer* build: a `required` feature we do not know must refuse to open, an
+   `optional-preserve` one must survive byte-for-byte, and an entry no feature
+   claims must be kept anyway. Adding a new kind of content to the container
+   means adding its feature to `Manifest::current` with the right level.
 
 7. **Coordinates are `f64` millimetres.** No unit conversion in storage; convert
    at the input and output edges only.

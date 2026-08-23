@@ -21,13 +21,18 @@ export const extentsSchema = z.tuple([
 
 export const drawingSummarySchema = z.object({
   file: z.string(),
+  /** The format the drawing was read from. */
+  format: z.string().default('dxf'),
   entities: z.number().int().nonnegative(),
   layers: z.number().int().nonnegative(),
   blocks: z.number().int().nonnegative(),
   /** Entities kept verbatim because this build does not model them. */
   preserved_entities: z.number().int().nonnegative(),
   preserved_sections: z.number().int().nonnegative(),
+  /** Entity types preserved verbatim because this build does not model them. */
   unsupported_types: z.array(z.string()),
+  /** Container features written by a newer build, preserved but not understood. */
+  unsupported_features: z.array(z.string()).default([]),
   warnings: z.number().int().nonnegative(),
   extents_mm: extentsSchema,
 });
@@ -39,6 +44,12 @@ export const inspectionSchema = drawingSummarySchema.extend({
 
 export const conversionSchema = drawingSummarySchema.extend({
   output: z.string(),
+  /**
+   * What the target format could not carry. Empty for `.odc`, which holds the
+   * whole document; non-empty for DXF, which has no way to express schemas,
+   * storeys, grids or domain objects.
+   */
+  losses: z.array(z.string()).default([]),
 });
 
 export const severitySchema = z.enum(['error', 'warning', 'info']);

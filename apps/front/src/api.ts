@@ -122,6 +122,62 @@ export async function checkDrawing(
   });
 }
 
+/** Formats a drawing can be saved as. */
+export type SaveFormat = 'odc' | 'dxf' | 'json';
+
+export interface SavedDrawing {
+  blob: Blob;
+  filename: string;
+  /** What the chosen format could not carry. Empty for `.odc`. */
+  losses: string[];
+}
+
+const summaryHeaderSchema = z.object({
+  entities: z.number(),
+  layers: z.number(),
+  preserved: z.number(),
+  warnings: z.number(),
+  losses: z.array(z.string()).default([]),
+});
+
+/**
+ * Converts a drawing and hands back the bytes.
+ *
+ * The losses come back with the file rather than after it, because "the
+ * storeys did not fit in what you just downloaded" is not useful once the
+ * download is the user's copy of record.
+ */
+export async function saveDrawing(file: File, to: SaveFormat): Promise<SavedDrawing> {
+  const res = await fetch(`/api/drawings/convert?to=${to}`, {
+    method: 'POST',
+    body: (() => {
+      const form = new FormData();
+      form.set('file', file);
+      return form;
+    })(),
+  });
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as ApiError | null;
+    throw new ApiRequestError(
+      body?.error ?? `conversion failed with ${res.status}`,
+      res.status,
+      body?.detail,
+    );
+  }
+
+  const parsed = summaryHeaderSchema.safeParse(
+    JSON.parse(res.headers.get('x-opendraft-summary') ?? '{}'),
+  );
+  const base = file.name.replace(/\.[^.]+$/, '');
+
+  return {
+    blob: await res.blob(),
+    filename: `${base}.${to}`,
+    losses: parsed.success ? parsed.data.losses : [],
+  };
+}
+
 const healthSchema = z.object({
   status: z.enum(['ok', 'degraded']),
   engine: z.object({ binary: z.string(), available: z.boolean() }),

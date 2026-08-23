@@ -582,6 +582,68 @@ impl Database {
             bounds: self.space_bounds(self.model_space),
         }
     }
+
+    /// Takes the document apart into the pieces a container format stores
+    /// separately.
+    ///
+    /// A `.odc` file is not one blob — objects are chunked so a large drawing
+    /// can be read incrementally, and tables and schemas live in their own
+    /// entries so a tool can read a drawing's layer list without parsing its
+    /// geometry (`docs/03-data-model.md` §5). That requires reaching the parts
+    /// individually, and this is the seam for it: writers get the pieces, and
+    /// the invariants stay inside this module rather than being re-derived by
+    /// every format.
+    #[must_use]
+    pub fn to_snapshot(&self) -> DatabaseSnapshot {
+        DatabaseSnapshot {
+            header: self.header.clone(),
+            tables: self.tables.clone(),
+            objects: self.objects.values().cloned().collect(),
+            ids: self.ids.clone(),
+            schemas: self.schemas.clone(),
+            named_dict: self.named_dict,
+            model_space: self.model_space,
+            preserved: self.preserved.clone(),
+        }
+    }
+
+    /// Rebuilds a document from its parts, restoring the derived state
+    /// [`Database::rehydrate`] owns — name indexes and the id counter.
+    ///
+    /// Object order is preserved, because it is the draw order.
+    #[must_use]
+    pub fn from_snapshot(snapshot: DatabaseSnapshot) -> Self {
+        let mut objects = IndexMap::with_capacity(snapshot.objects.len());
+        for object in snapshot.objects {
+            objects.insert(object.id, object);
+        }
+        let mut db = Self {
+            header: snapshot.header,
+            tables: snapshot.tables,
+            objects,
+            ids: snapshot.ids,
+            schemas: snapshot.schemas,
+            named_dict: snapshot.named_dict,
+            model_space: snapshot.model_space,
+            preserved: snapshot.preserved,
+        };
+        db.rehydrate();
+        db
+    }
+}
+
+/// A document taken apart for storage. See [`Database::to_snapshot`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseSnapshot {
+    pub header: HeaderVars,
+    pub tables: SymbolTables,
+    /// In draw order.
+    pub objects: Vec<Object>,
+    pub ids: IdGenerator,
+    pub schemas: IndexMap<AppId, XDataSchema>,
+    pub named_dict: ObjectId,
+    pub model_space: ObjectId,
+    pub preserved: Vec<PreservedBlob>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -779,6 +841,43 @@ mod tests {
         assert!(back.reserve_id().seq > id.seq);
         assert!(back.tables.layers.by_name("0").is_some());
         assert!(back.validate().is_empty());
+    }
+
+    #[test]
+    fn a_snapshot_round_trips_with_order_and_identity_intact() {
+        let mut db = Database::new(ActorId(5));
+        let layer = db.ensure_layer("M-DUCT-SA");
+        let ids: Vec<ObjectId> = (1..=3)
+            .map(|i| {
+                db.insert_entity(Entity::new(
+                    layer,
+                    db.model_space(),
+                    Geometry::Line {
+                        a: Point3::ORIGIN,
+                        b: Point3::new(f64::from(i) * 1000.0, 0.0, 0.0),
+                    },
+                ))
+                .expect("inserts")
+            })
+            .collect();
+
+        let back = Database::from_snapshot(db.to_snapshot());
+
+        assert_eq!(back.entities().count(), 3);
+        assert_eq!(
+            back.tables
+                .blocks
+                .get(back.model_space())
+                .expect("model space")
+                .entities,
+            ids,
+            "draw order must survive"
+        );
+        assert!(back.tables.layers.by_name("m-duct-sa").is_some());
+        assert!(back.validate().is_empty());
+        // The id counter came with it, so a reload cannot reissue a live id.
+        let mut back = back;
+        assert!(back.reserve_id().seq > ids.last().expect("ids").seq);
     }
 
     #[test]

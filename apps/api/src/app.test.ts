@@ -158,21 +158,67 @@ describe.if(hasEngine)('drawings', () => {
     expect(Array.isArray(body.findings)).toBe(true);
   });
 
-  test('converts and returns the file with a summary header', async () => {
+  test('saves as .odc by default — the format that keeps everything', async () => {
     const res = await app.request('/api/drawings/convert', {
       method: 'POST',
       body: upload('第1階平面図.dxf'),
     });
     expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toBe('application/dxf');
+    expect(res.headers.get('content-type')).toBe(
+      'application/vnd.opendraft.document+zip',
+    );
+    expect(res.headers.get('content-disposition')).toContain('.odc');
 
     const summary = JSON.parse(res.headers.get('x-opendraft-summary') ?? '{}') as {
       entities: number;
+      losses: string[];
     };
     expect(summary.entities).toBe(2);
+    expect(summary.losses).toEqual([]);
+
+    // A ZIP, whatever else it is.
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(Array.from(bytes.slice(0, 2))).toEqual([0x50, 0x4b]);
+  });
+
+  test('converts to DXF when asked, and says what that costs', async () => {
+    const res = await app.request('/api/drawings/convert?to=dxf', {
+      method: 'POST',
+      body: upload(),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/dxf');
 
     const text = await res.text();
     expect(text).toContain('M-DUCT-SA');
     expect(text.endsWith('0\nEOF\n')).toBe(true);
+  });
+
+  test('a .odc upload round-trips back through the service', async () => {
+    const saved = await app.request('/api/drawings/convert', {
+      method: 'POST',
+      body: upload(),
+    });
+    const odc = new File([await saved.arrayBuffer()], 'plan.odc');
+
+    const form = new FormData();
+    form.set('file', odc);
+    const res = await app.request('/api/drawings/inspect', {
+      method: 'POST',
+      body: form,
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { entities: number; format: string };
+    expect(body.entities).toBe(2);
+    expect(body.format).toBe('odc');
+  });
+
+  test('an unknown target format is refused', async () => {
+    const res = await app.request('/api/drawings/convert?to=rvt', {
+      method: 'POST',
+      body: upload(),
+    });
+    expect(res.status).toBe(400);
   });
 });

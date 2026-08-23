@@ -9,6 +9,7 @@
 //! output is structured, which is how the API and CI consume it.
 
 mod check;
+mod load;
 mod report;
 
 use anyhow::{Context, Result};
@@ -35,10 +36,14 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Convert a drawing between formats.
+    ///
+    /// `.odc` is the native container and holds the whole document; `.dxf` is
+    /// for exchange and cannot carry everything.
     Convert {
         input: PathBuf,
         output: PathBuf,
-        /// Fail instead of warning when entities are preserved rather than understood.
+        /// Fail instead of warning when data would be preserved-but-unreadable,
+        /// or dropped by the target format.
         #[arg(long)]
         strict: bool,
     },
@@ -52,7 +57,12 @@ enum Command {
         rules: RuleSet,
     },
     /// Read a drawing, write it, read it back, and compare.
-    Roundtrip { input: PathBuf },
+    Roundtrip {
+        input: PathBuf,
+        /// Format to round-trip through. Defaults to the input's own.
+        #[arg(long, value_name = "FORMAT")]
+        via: Option<String>,
+    },
     /// Browse the part catalogue.
     Parts {
         #[command(subcommand)]
@@ -98,24 +108,8 @@ fn main() -> Result<()> {
         } => convert(&input, &output, strict, cli.json),
         Command::Inspect { input } => inspect(&input, cli.json),
         Command::Check { input, rules } => check_drawing(&input, rules, cli.json),
-        Command::Roundtrip { input } => roundtrip(&input, cli.json),
+        Command::Roundtrip { input, via } => roundtrip(&input, via, cli.json),
         Command::Parts { command, library } => parts(&command, library.as_deref(), cli.json),
-    }
-}
-
-fn load(path: &std::path::Path) -> Result<(od_core::Database, od_io_dxf::ReadOutcome)> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default()
-        .to_lowercase();
-    match ext.as_str() {
-        "dxf" => od_io_dxf::read_file(path).with_context(|| format!("reading {}", path.display())),
-        "dwg" => anyhow::bail!(
-            "DWG is read through the separate `od-bridge-dwg` component, which is not \
-             installed. Convert to DXF first, or see docs/05-interop-license.md."
-        ),
-        other => anyhow::bail!("unsupported input format `{other}` (supported: dxf)"),
     }
 }
 
@@ -125,44 +119,38 @@ fn convert(
     strict: bool,
     json: bool,
 ) -> Result<()> {
-    let (db, outcome) = load(input)?;
+    let (db, outcome) = load::load(input)?;
 
-    if strict && !outcome.unsupported_types.is_empty() {
+    if strict && !outcome.unsupported_entities.is_empty() {
         anyhow::bail!(
             "--strict: {} entity type(s) were preserved but not understood: {}",
-            outcome.unsupported_types.len(),
-            outcome.unsupported_types.join(", ")
+            outcome.unsupported_entities.len(),
+            outcome.unsupported_entities.join(", ")
         );
     }
 
-    let ext = output
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default()
-        .to_lowercase();
-    match ext.as_str() {
-        "dxf" => od_io_dxf::write_file(&db, output)
-            .with_context(|| format!("writing {}", output.display()))?,
-        "json" => {
-            let text = serde_json::to_string_pretty(&db)?;
-            std::fs::write(output, text)
-                .with_context(|| format!("writing {}", output.display()))?;
-        }
-        other => anyhow::bail!("unsupported output format `{other}` (supported: dxf, json)"),
+    let target = load::extension_of(output);
+    let losses = load::conversion_losses(&db, &target);
+    if strict && !losses.is_empty() {
+        anyhow::bail!(
+            "--strict: converting to {target} would lose {}",
+            losses.join("; ")
+        );
     }
 
-    report::conversion(&db, &outcome, input, output, json);
+    load::save(&db, output)?;
+    report::conversion(&db, &outcome, input, output, &losses, json);
     Ok(())
 }
 
 fn inspect(input: &std::path::Path, json: bool) -> Result<()> {
-    let (db, outcome) = load(input)?;
+    let (db, outcome) = load::load(input)?;
     report::inspection(&db, &outcome, input, json);
     Ok(())
 }
 
 fn check_drawing(input: &std::path::Path, rules: RuleSet, json: bool) -> Result<()> {
-    let (db, _) = load(input)?;
+    let (db, _) = load::load(input)?;
     let findings = check::run(&db, rules == RuleSet::Jp);
     let failed = findings
         .iter()
@@ -175,11 +163,30 @@ fn check_drawing(input: &std::path::Path, rules: RuleSet, json: bool) -> Result<
     Ok(())
 }
 
-fn roundtrip(input: &std::path::Path, json: bool) -> Result<()> {
-    let (first, _) = load(input)?;
-    let written = od_io_dxf::write_string(&first);
-    let (second, outcome) = od_io_dxf::read_str(&written).context("re-reading our own output")?;
-    let diff = report::roundtrip(&first, &second, &outcome, input, json);
+/// Reads, writes and reads again — in the file's own format unless told
+/// otherwise. Round-tripping DXF through .odc would test the wrong thing:
+/// what matters is that a format does not lose data to itself.
+fn roundtrip(input: &std::path::Path, via: Option<String>, json: bool) -> Result<()> {
+    let (first, _) = load::load(input)?;
+    let format = via.unwrap_or_else(|| load::extension_of(input));
+
+    let (second, warnings) = match format.as_str() {
+        "dxf" => {
+            let written = od_io_dxf::write_string(&first);
+            let (db, outcome) =
+                od_io_dxf::read_str(&written).context("re-reading our own DXF output")?;
+            (db, outcome.warnings.len())
+        }
+        "odc" => {
+            let written = od_io_odc::write_bytes(&first).context("writing .odc")?;
+            let (db, outcome) =
+                od_io_odc::read_bytes(&written).context("re-reading our own .odc output")?;
+            (db, outcome.warnings.len())
+        }
+        other => anyhow::bail!("cannot round-trip through `{other}` (supported: dxf, odc)"),
+    };
+
+    let diff = report::roundtrip(&first, &second, warnings, input, &format, json);
     if diff {
         std::process::exit(1);
     }

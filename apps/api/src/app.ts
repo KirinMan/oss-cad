@@ -26,6 +26,18 @@ import { od, odAvailable, odBinary, OdError, OdMissingError } from './od.ts';
 /** Uploads above this are refused outright rather than buffered. */
 const MAX_UPLOAD_BYTES = Number(process.env.OD_MAX_UPLOAD ?? 64 * 1024 * 1024);
 
+/** Formats the engine can read and write. Kept in step with crates/od-cli/src/load.rs. */
+const READABLE = ['dxf', 'odc'] as const;
+const WRITABLE: string[] = ['odc', 'dxf', 'json'];
+
+const CONTENT_TYPES: Record<string, string> = {
+  // The container is a ZIP, and saying so lets a browser and a proxy handle it
+  // sensibly even where the vendor type means nothing to them.
+  odc: 'application/vnd.opendraft.document+zip',
+  dxf: 'application/dxf',
+  json: 'application/json',
+};
+
 export function createApp() {
   const app = new Hono();
 
@@ -135,7 +147,18 @@ export function createApp() {
 
   app.post('/api/drawings/convert', (c) =>
     withUpload(c, async (path, name) => {
-      const target = c.req.query('to') === 'json' ? 'json' : 'dxf';
+      // `.odc` is the default target because it is the only format that keeps
+      // the whole document; asking for DXF is asking for an exchange copy.
+      const target = c.req.query('to') ?? 'odc';
+      if (!WRITABLE.includes(target)) {
+        return c.json<ApiError>(
+          {
+            error: 'unsupported target',
+            detail: `to must be one of ${WRITABLE.join(', ')}`,
+          },
+          400,
+        );
+      }
       const out = `${path}.${target}`;
       const report = await od(conversionSchema, ['convert', path, out]);
       const bytes = await Bun.file(out).arrayBuffer();
@@ -144,15 +167,18 @@ export function createApp() {
       const base = name.replace(/\.[^./\\]+$/, '');
       return new Response(bytes, {
         headers: {
-          'content-type': target === 'json' ? 'application/json' : 'application/dxf',
+          'content-type': CONTENT_TYPES[target] ?? 'application/octet-stream',
           'content-disposition': `attachment; filename="${encodeURIComponent(base)}.${target}"`,
           // The summary rides along in a header so a client can report what
-          // happened without a second request.
+          // happened without a second request — including what the target
+          // format could not carry, which the user needs to see *before* they
+          // treat the download as their copy of record.
           'x-opendraft-summary': JSON.stringify({
             entities: report.entities,
             layers: report.layers,
             preserved: report.preserved_entities,
             warnings: report.warnings,
+            losses: report.losses,
           }),
         },
       });
@@ -189,10 +215,13 @@ async function withUpload(
     );
   }
 
-  const extension = file.name.toLowerCase().endsWith('.dxf') ? 'dxf' : null;
+  const extension = READABLE.find((ext) => file.name.toLowerCase().endsWith(`.${ext}`));
   if (!extension) {
     return c.json<ApiError>(
-      { error: 'unsupported format', detail: 'only .dxf is accepted at present' },
+      {
+        error: 'unsupported format',
+        detail: `accepted: ${READABLE.map((e) => `.${e}`).join(', ')}`,
+      },
       415,
     );
   }

@@ -1,6 +1,14 @@
 [workspace]
 resolver = "3"
-members = ["crates/od-geom2d", "crates/od-geom3d", "crates/od-core", "crates/od-io-dxf", "crates/od-parts", "crates/od-cli"]
+members = [
+    "crates/od-geom2d",
+    "crates/od-geom3d",
+    "crates/od-core",
+    "crates/od-io-dxf",
+    "crates/od-io-odc",
+    "crates/od-parts",
+    "crates/od-cli",
+]
 
 [workspace.package]
 version = "0.0.1"
@@ -15,6 +23,7 @@ od-geom2d = { path = "crates/od-geom2d", version = "0.0.1" }
 od-geom3d = { path = "crates/od-geom3d", version = "0.0.1" }
 od-core = { path = "crates/od-core", version = "0.0.1" }
 od-io-dxf = { path = "crates/od-io-dxf", version = "0.0.1" }
+od-io-odc = { path = "crates/od-io-odc", version = "0.0.1" }
 od-parts = { path = "crates/od-parts", version = "0.0.1" }
 
 serde = { version = "1", features = ["derive"] }
