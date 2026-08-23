@@ -133,6 +133,32 @@ export const editResponseSchema = z.object({
 });
 export type EditResponse = z.infer<typeof editResponseSchema>;
 
+/** `od --json mep route`'s own report shape. */
+export const mepRouteReportSchema = z.object({
+  input: z.string(),
+  output: z.string(),
+  segments: z.number().int().nonnegative(),
+  fittings: z.number().int().nonnegative(),
+  render: z.object({ output: z.string(), view_box: viewBoxSchema }).nullable(),
+});
+export type MepRouteReport = z.infer<typeof mepRouteReportSchema>;
+
+/**
+ * `POST /api/mep/route`'s response — the same web-friendly envelope
+ * {@link editResponseSchema} uses, for a route instead of a single `Command`:
+ * a route is not one, and cannot be, without `od-core` learning what a
+ * "system" or a "spec" is (rule 1) — see `od mep route`, this endpoint's own
+ * CLI counterpart.
+ */
+export const mepRouteResponseSchema = z.object({
+  segments: z.number().int().nonnegative(),
+  fittings: z.number().int().nonnegative(),
+  document: z.string(),
+  svg: z.string(),
+  view_box: viewBoxSchema.nullable(),
+});
+export type MepRouteResponse = z.infer<typeof mepRouteResponseSchema>;
+
 /** `[x, y, z]` in drawing millimetres. */
 export const point3TupleSchema = z.tuple([z.number(), z.number(), z.number()]);
 

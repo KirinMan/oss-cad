@@ -393,4 +393,90 @@ describe.if(hasEngine)('drawings', () => {
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe('bad command');
   });
+
+  test('mep/route draws a route and hands back the updated document and render', async () => {
+    const form = upload();
+    form.set('system', 'sys.water.cold');
+    form.set('spec', 'spec.pipe.sgp');
+    form.set('profile', JSON.stringify({ kind: 'round', d: 50 }));
+    form.set(
+      'path',
+      JSON.stringify([
+        { x: 10000, y: 0, z: 500 },
+        { x: 12000, y: 0, z: 500 },
+        { x: 12000, y: 2000, z: 500 },
+      ]),
+    );
+    const res = await app.request('/api/mep/route', { method: 'POST', body: form });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      segments: number;
+      fittings: number;
+      document: string;
+      svg: string;
+      view_box: [number, number, number, number] | null;
+    };
+    expect(body.segments).toBe(2);
+    expect(body.fittings).toBe(1);
+    expect(body.svg).toContain('<svg');
+    expect(body.view_box).toHaveLength(4);
+
+    // The returned document really has the route in it: uploading it back
+    // shows more entities than the 2 the fixture started with.
+    const edited = new File([Buffer.from(body.document, 'base64')], 'routed.dxf');
+    const again = new FormData();
+    again.set('file', edited);
+    const inspected = await app.request('/api/drawings/inspect', {
+      method: 'POST',
+      body: again,
+    });
+    const inspection = (await inspected.json()) as { entities: number };
+    expect(inspection.entities).toBeGreaterThan(2);
+  });
+
+  test('mep/route rejects a profile it cannot route through', async () => {
+    const form = upload();
+    form.set('system', 'sys.water.cold');
+    form.set('spec', 'spec.pipe.sgp');
+    form.set('profile', JSON.stringify({ kind: 'terminal' }));
+    form.set(
+      'path',
+      JSON.stringify([
+        { x: 0, y: 0, z: 0 },
+        { x: 1000, y: 0, z: 0 },
+      ]),
+    );
+    const res = await app.request('/api/mep/route', { method: 'POST', body: form });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('bad profile');
+  });
+
+  test('mep/route rejects a path with fewer than two points', async () => {
+    const form = upload();
+    form.set('system', 'sys.water.cold');
+    form.set('spec', 'spec.pipe.sgp');
+    form.set('profile', JSON.stringify({ kind: 'round', d: 50 }));
+    form.set('path', JSON.stringify([{ x: 0, y: 0, z: 0 }]));
+    const res = await app.request('/api/mep/route', { method: 'POST', body: form });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('bad path');
+  });
+
+  test('mep/route reports an unknown spec as an engine failure, not a crash', async () => {
+    const form = upload();
+    form.set('system', 'sys.water.cold');
+    form.set('spec', 'no.such.spec');
+    form.set('profile', JSON.stringify({ kind: 'round', d: 50 }));
+    form.set(
+      'path',
+      JSON.stringify([
+        { x: 0, y: 0, z: 0 },
+        { x: 1000, y: 0, z: 0 },
+      ]),
+    );
+    const res = await app.request('/api/mep/route', { method: 'POST', body: form });
+    expect(res.status).toBe(422);
+  });
 });
