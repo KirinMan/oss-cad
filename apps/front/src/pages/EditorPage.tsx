@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import type { Command, QueryHit } from '@opendraft/shared';
-import { editDrawing, queryNear, renderDrawingWithViewBox } from '../api.ts';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import type { Command, Profile, QueryHit } from '@opendraft/shared';
+import {
+  editDrawing,
+  fetchSpecs,
+  fetchSystems,
+  queryNear,
+  renderDrawingWithViewBox,
+  routeMep,
+} from '../api.ts';
 
 /**
  * The editing canvas (Phase 2, `docs/06-roadmap.md`).
@@ -30,6 +37,12 @@ import { editDrawing, queryNear, renderDrawingWithViewBox } from '../api.ts';
  * and a drag past a small threshold moves the whole selection — because all
  * three start the same way (a `pointerdown` somewhere on the canvas) and only
  * `pointerup` reveals which one actually happened.
+ *
+ * The MEP tool draws a route (`docs/04-mep.md` §1: centreline + profile +
+ * system, auto-inserting whatever 90° fittings the path needs) rather than a
+ * generic entity — which is why it goes through its own endpoint,
+ * `POST /api/mep/route`, and not `od-core::Command`: a route cannot be one
+ * without `od-core` learning what a "system" or a "spec" is (rule 1).
  */
 
 interface Snapshot {
@@ -38,8 +51,9 @@ interface Snapshot {
   viewBox: [number, number, number, number];
 }
 
-type Tool = 'line' | 'select';
+type Tool = 'line' | 'select' | 'mep';
 type WorldPoint = { x: number; y: number };
+type ProfileKind = 'rect' | 'round';
 
 const DEFAULT_LAYER = 'A-EDIT';
 /** How close, in screen pixels, a candidate has to be before it "grabs" the cursor. */
@@ -69,6 +83,24 @@ export function EditorPage() {
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // ── MEP routing ────────────────────────────────────────────────────────
+  const [mepPath, setMepPath] = useState<WorldPoint[]>([]);
+  const [mepSystem, setMepSystem] = useState('');
+  const [mepSpec, setMepSpec] = useState('');
+  const [mepProfileKind, setMepProfileKind] = useState<ProfileKind>('rect');
+  const [mepW, setMepW] = useState('400');
+  const [mepH, setMepH] = useState('300');
+  const [mepD, setMepD] = useState('150');
+  const [mepElevation, setMepElevation] = useState('0');
+  const systemsQuery = useQuery({ queryKey: ['systems'], queryFn: fetchSystems });
+  const specsQuery = useQuery({ queryKey: ['specs'], queryFn: fetchSpecs });
+  // Defaults to the catalogue's first entry until the user picks one —
+  // computed each render rather than synced into state via an effect, since
+  // it is fully derived from props/query data with nothing external to
+  // subscribe to.
+  const effectiveSystem = mepSystem || (systemsQuery.data?.[0]?.id ?? '');
+  const effectiveSpec = mepSpec || (specsQuery.data?.[0]?.id ?? '');
+
   // Every snapshot owns an object URL; release whichever ones this component
   // itself created once nothing points at them any more.
   useEffect(() => {
@@ -85,6 +117,7 @@ export function EditorPage() {
     setDrag(null);
     setHoverPoint(null);
     setSnapCandidates([]);
+    setMepPath([]);
   }
 
   const open = useMutation({
@@ -113,6 +146,25 @@ export function EditorPage() {
       // The cached selection's bounds are for the document before this edit;
       // stale bounds would draw the highlight in the wrong place.
       setSelection([]);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const route = useMutation({
+    mutationFn: async (params: {
+      system: string;
+      spec: string;
+      profile: Profile;
+      path: { x: number; y: number; z: number }[];
+    }) => {
+      if (!current) throw new Error('先に図面を開いてください');
+      return routeMep(current.file, params);
+    },
+    onSuccess: (result) => {
+      setError(null);
+      setHistory((h) => (current ? [...h, current] : h));
+      setCurrent({ file: result.document, url: result.url, viewBox: result.viewBox });
+      setMepPath([]);
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -156,7 +208,9 @@ export function EditorPage() {
 
   /** True while a pointer action is about to place a point precisely — where object snap applies. */
   function wantsSnap(): boolean {
-    return tool === 'line' || (tool === 'select' && drag?.moved === true);
+    return (
+      tool === 'line' || tool === 'mep' || (tool === 'select' && drag?.moved === true)
+    );
   }
 
   /**
@@ -243,21 +297,44 @@ export function EditorPage() {
   }
 
   function onCanvasClick(e: React.MouseEvent) {
-    if (tool !== 'line' || !current || edit.isPending) return;
+    if (!current || edit.isPending) return;
     const point = snapPoint?.world ?? toWorld(e.clientX, e.clientY);
     if (!point) return;
 
-    if (!pendingStart) {
-      setPendingStart(point);
+    if (tool === 'line') {
+      if (!pendingStart) {
+        setPendingStart(point);
+        return;
+      }
+      edit.mutate({
+        kind: 'add_line',
+        layer,
+        a: { x: pendingStart.x, y: pendingStart.y, z: 0 },
+        b: { x: point.x, y: point.y, z: 0 },
+      });
+      setPendingStart(null);
       return;
     }
-    edit.mutate({
-      kind: 'add_line',
-      layer,
-      a: { x: pendingStart.x, y: pendingStart.y, z: 0 },
-      b: { x: point.x, y: point.y, z: 0 },
+
+    if (tool === 'mep') {
+      setMepPath((p) => [...p, point]);
+    }
+  }
+
+  function finishMepRoute() {
+    if (mepPath.length < 2 || !effectiveSystem || !effectiveSpec || route.isPending)
+      return;
+    const elevation = Number(mepElevation) || 0;
+    const profile: Profile =
+      mepProfileKind === 'rect'
+        ? { kind: 'rect', w: Number(mepW) || 0, h: Number(mepH) || 0 }
+        : { kind: 'round', d: Number(mepD) || 0 };
+    route.mutate({
+      system: effectiveSystem,
+      spec: effectiveSpec,
+      profile,
+      path: mepPath.map((p) => ({ x: p.x, y: p.y, z: elevation })),
     });
-    setPendingStart(null);
   }
 
   function onCanvasPointerDown(e: React.PointerEvent) {
@@ -340,6 +417,7 @@ export function EditorPage() {
     top: number;
     world: WorldPoint;
   } | null>(null);
+  const [mepPathScreen, setMepPathScreen] = useState<{ left: number; top: number }[]>([]);
 
   useEffect(() => {
     // The `.current` read here (unused beyond gating) is what tells the
@@ -353,6 +431,7 @@ export function EditorPage() {
       setSelectionBoxes([]);
       setGhostBoxes([]);
       setSnapPoint(null);
+      setMepPathScreen([]);
       return;
     }
 
@@ -390,6 +469,18 @@ export function EditorPage() {
     }
     setSnapPoint(snap);
 
+    // The path preview includes a rubber-band segment to wherever the next
+    // click would currently land, so the pending vertex is visible before
+    // it is placed, not only after.
+    if (tool === 'mep' && mepPath.length > 0) {
+      const rubberBand = snap?.world ?? hoverPoint;
+      const points = mepPath.map((p) => toScreen(fit, p.x, p.y));
+      if (rubberBand) points.push(toScreen(fit, rubberBand.x, rubberBand.y));
+      setMepPathScreen(points);
+    } else {
+      setMepPathScreen(mepPath.map((p) => toScreen(fit, p.x, p.y)));
+    }
+
     if (drag?.moved && selection.length > 0) {
       const live = snap?.world ?? hoverPoint;
       if (live) {
@@ -403,7 +494,7 @@ export function EditorPage() {
       setGhostBoxes([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingStart, selection, hoverPoint, snapCandidates, drag, tool, current]);
+  }, [pendingStart, selection, hoverPoint, snapCandidates, drag, tool, current, mepPath]);
 
   const canRotate = selection.length > 0 && selection.every((s) => s.kind === 'blockref');
 
@@ -465,6 +556,9 @@ export function EditorPage() {
               <ToolButton active={tool === 'select'} onClick={() => switchTool('select')}>
                 選択
               </ToolButton>
+              <ToolButton active={tool === 'mep'} onClick={() => switchTool('mep')}>
+                配管
+              </ToolButton>
             </div>
 
             {tool === 'line' &&
@@ -510,6 +604,46 @@ export function EditorPage() {
                 </button>
               </>
             )}
+
+            {tool === 'mep' && (
+              <span>
+                {mepPath.length === 0
+                  ? '経路の点をクリック'
+                  : `点 ${mepPath.length} — クリックで追加、確定で自動継手を挿入`}
+              </span>
+            )}
+            {tool === 'mep' && mepPath.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setMepPath((p) => p.slice(0, -1))}
+                  className="rounded border border-rule px-2 py-1 text-ink"
+                >
+                  一点戻す
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMepPath([])}
+                  className="rounded border border-rule px-2 py-1 text-ink"
+                >
+                  クリア
+                </button>
+                <button
+                  type="button"
+                  onClick={finishMepRoute}
+                  disabled={
+                    mepPath.length < 2 ||
+                    !effectiveSystem ||
+                    !effectiveSpec ||
+                    route.isPending
+                  }
+                  className="rounded border border-accent bg-accent/10 px-2 py-1 text-ink disabled:opacity-40"
+                >
+                  確定
+                </button>
+              </>
+            )}
+
             {snapPoint && (
               <span className="text-sys-hydronic">
                 スナップ中 ({snapPoint.world.x.toFixed(0)}, {snapPoint.world.y.toFixed(0)}
@@ -525,8 +659,67 @@ export function EditorPage() {
             >
               元に戻す（{history.length}）
             </button>
-            {(edit.isPending || pick.isPending) && <span>処理中…</span>}
+            {(edit.isPending || pick.isPending || route.isPending) && (
+              <span>処理中…</span>
+            )}
           </div>
+
+          {tool === 'mep' && (
+            <div className="flex flex-wrap items-end gap-3 rounded border border-rule bg-paper-raised px-3 py-2 text-xs">
+              <label className="flex flex-col gap-1">
+                系統
+                <select
+                  value={effectiveSystem}
+                  onChange={(e) => setMepSystem(e.target.value)}
+                  className="rounded border border-rule bg-paper px-2 py-1"
+                >
+                  {(systemsQuery.data ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name.ja}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                仕様
+                <select
+                  value={effectiveSpec}
+                  onChange={(e) => setMepSpec(e.target.value)}
+                  className="rounded border border-rule bg-paper px-2 py-1"
+                >
+                  {(specsQuery.data ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name.ja}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                断面
+                <select
+                  value={mepProfileKind}
+                  onChange={(e) => setMepProfileKind(e.target.value as ProfileKind)}
+                  className="rounded border border-rule bg-paper px-2 py-1"
+                >
+                  <option value="rect">矩形</option>
+                  <option value="round">円形</option>
+                </select>
+              </label>
+              {mepProfileKind === 'rect' ? (
+                <>
+                  <NumberField label="幅 mm" value={mepW} onChange={setMepW} />
+                  <NumberField label="高さ mm" value={mepH} onChange={setMepH} />
+                </>
+              ) : (
+                <NumberField label="径 mm" value={mepD} onChange={setMepD} />
+              )}
+              <NumberField
+                label="標高 (Z) mm"
+                value={mepElevation}
+                onChange={setMepElevation}
+              />
+            </div>
+          )}
 
           <div
             ref={containerRef}
@@ -573,10 +766,60 @@ export function EditorPage() {
                 style={{ left: snapPoint.left, top: snapPoint.top }}
               />
             )}
+            {mepPathScreen.length > 0 && (
+              // Our own UI chrome, not the drawing's content — safe to draw
+              // directly, unlike the rendered SVG itself (CLAUDE.md). May
+              // include one extra point past the committed path: the live
+              // rubber-band segment to wherever the next click would land.
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                aria-hidden
+              >
+                <polyline
+                  points={mepPathScreen.map((p) => `${p.left},${p.top}`).join(' ')}
+                  fill="none"
+                  className="stroke-accent"
+                  strokeWidth={2}
+                  strokeDasharray="4 3"
+                />
+                {mepPathScreen.slice(0, mepPath.length).map((p, i) => (
+                  <circle
+                    key={mepPath[i] ? `${mepPath[i]?.x}-${mepPath[i]?.y}-${i}` : i}
+                    cx={p.left}
+                    cy={p.top}
+                    r={4}
+                    className="fill-paper-raised stroke-accent"
+                    strokeWidth={2}
+                  />
+                ))}
+              </svg>
+            )}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      {label}
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-24 rounded border border-rule bg-paper px-2 py-1 tabular"
+      />
+    </label>
   );
 }
 
