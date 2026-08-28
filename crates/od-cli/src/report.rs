@@ -664,6 +664,43 @@ pub fn mep_route(
     }
 }
 
+pub fn mep_place(
+    input: &Path,
+    output: &Path,
+    id: od_core::ObjectId,
+    rendered: Option<(&Path, od_io_svg::ViewBox)>,
+    json: bool,
+) {
+    if json {
+        #[derive(Serialize)]
+        struct RenderedInfo {
+            output: String,
+            view_box: [f64; 4],
+        }
+        #[derive(Serialize)]
+        struct Report {
+            input: String,
+            output: String,
+            created: od_core::ObjectId,
+            render: Option<RenderedInfo>,
+        }
+        emit(&Report {
+            input: input.display().to_string(),
+            output: output.display().to_string(),
+            created: id,
+            render: rendered.map(|(path, vb)| RenderedInfo {
+                output: path.display().to_string(),
+                view_box: [vb.min_x, vb.min_y, vb.width, vb.height],
+            }),
+        });
+        return;
+    }
+    println!("{} → {}  (placed {id})", input.display(), output.display());
+    if let Some((path, _)) = rendered {
+        println!("  rendered → {}", path.display());
+    }
+}
+
 pub fn mep_takeoff(t: &Takeoff, path: &Path, json: bool) {
     if json {
         #[derive(Serialize)]

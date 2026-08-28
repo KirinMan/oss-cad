@@ -138,6 +138,88 @@ pub fn route(
     Ok(())
 }
 
+/// Places one piece of equipment on an existing drawing and saves the
+/// result — the CLI's own path through [`PlacedPart`], for the same reason
+/// [`route`] is its own command rather than an `od_core::Command`: equipment
+/// placement needs a part id and a system, vocabulary `od-core` must never
+/// learn (rule 1).
+///
+/// Always [`PlacementKind::Equipment`] — a fitting is something [`route`]
+/// inserts automatically, never something placed directly, so there is no
+/// ambiguity to ask the caller to resolve.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a placement's inputs are all required and none group naturally"
+)]
+pub fn place(
+    input: &Path,
+    output: &Path,
+    part_id: &str,
+    position: Point3,
+    rotation_deg: f64,
+    mirror_y: bool,
+    system: Option<&str>,
+    set: &[String],
+    render_svg: Option<&Path>,
+    json: bool,
+) -> Result<()> {
+    let catalog = Catalog::bundled().context("loading the bundled part catalogue")?;
+    let (db, _) = crate::load::load(input)?;
+    let mut doc = Document::new(db);
+
+    let params = parse_set_overrides(set)?;
+
+    let part = PlacedPart {
+        part_id: part_id.to_owned(),
+        position,
+        rotation: rotation_deg.to_radians(),
+        mirror_y,
+        params,
+        kind: PlacementKind::Equipment,
+        system: system.map(str::to_owned),
+    };
+
+    let id = doc.edit::<_, _, anyhow::Error>("Place", |tx| {
+        let id = store::add_part(tx, &part)?;
+        derive::insert_part(tx, &catalog, &part)?;
+        Ok(id)
+    })?;
+
+    crate::load::save(&doc.db, output)?;
+
+    let rendered = match render_svg {
+        Some(svg_out) => {
+            let (svg, view_box) =
+                od_io_svg::to_svg_with_view_box(&doc.db, &od_io_svg::SvgOptions::default());
+            std::fs::write(svg_out, &svg)
+                .with_context(|| format!("writing {}", svg_out.display()))?;
+            Some((svg_out, view_box))
+        }
+        None => None,
+    };
+
+    crate::report::mep_place(input, output, id, rendered, json);
+    Ok(())
+}
+
+/// `NAME=VALUE` pairs, as `--set` takes them for both `parts show` and
+/// `mep place` — pulled out once rather than duplicated between `main.rs`
+/// and here.
+pub fn parse_set_overrides(set: &[String]) -> Result<HashMap<String, f64>> {
+    let mut params = HashMap::new();
+    for pair in set {
+        let (name, value) = pair
+            .split_once('=')
+            .with_context(|| format!("`{pair}` should look like NAME=VALUE"))?;
+        let v: f64 = value
+            .trim()
+            .parse()
+            .with_context(|| format!("`{value}` is not a number"))?;
+        params.insert(name.trim().to_owned(), v);
+    }
+    Ok(params)
+}
+
 /// `rect:W,H` or `round:D`, in millimetres.
 fn parse_profile(text: &str) -> Result<Profile> {
     let (kind, dims) = text
@@ -239,5 +321,19 @@ mod tests {
     fn rejects_a_malformed_path_point() {
         assert!(parse_path("0,0,0;not,a,point").is_err());
         assert!(parse_path("0,0").is_err());
+    }
+
+    #[test]
+    fn parses_set_overrides() {
+        let overrides =
+            parse_set_overrides(&["W=500".to_owned(), "H=300".to_owned()]).expect("parses");
+        assert_eq!(overrides.get("W"), Some(&500.0));
+        assert_eq!(overrides.get("H"), Some(&300.0));
+    }
+
+    #[test]
+    fn rejects_a_malformed_set_override() {
+        assert!(parse_set_overrides(&["no-equals-sign".to_owned()]).is_err());
+        assert!(parse_set_overrides(&["W=wide".to_owned()]).is_err());
     }
 }
