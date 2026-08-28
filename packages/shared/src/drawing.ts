@@ -159,6 +159,29 @@ export const mepRouteResponseSchema = z.object({
 });
 export type MepRouteResponse = z.infer<typeof mepRouteResponseSchema>;
 
+/** `od --json mep place`'s own report shape. */
+export const mepPlaceReportSchema = z.object({
+  input: z.string(),
+  output: z.string(),
+  created: z.string(),
+  render: z.object({ output: z.string(), view_box: viewBoxSchema }).nullable(),
+});
+export type MepPlaceReport = z.infer<typeof mepPlaceReportSchema>;
+
+/**
+ * `POST /api/mep/place`'s response — the same web-friendly envelope
+ * {@link editResponseSchema} uses, for placing equipment instead of a single
+ * `Command`: a placement needs a part id and a system, vocabulary `od-core`
+ * must never learn (rule 1).
+ */
+export const mepPlaceResponseSchema = z.object({
+  created: z.string(),
+  document: z.string(),
+  svg: z.string(),
+  view_box: viewBoxSchema.nullable(),
+});
+export type MepPlaceResponse = z.infer<typeof mepPlaceResponseSchema>;
+
 /** `[x, y, z]` in drawing millimetres. */
 export const point3TupleSchema = z.tuple([z.number(), z.number(), z.number()]);
 

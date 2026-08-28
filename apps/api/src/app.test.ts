@@ -479,4 +479,60 @@ describe.if(hasEngine)('drawings', () => {
     const res = await app.request('/api/mep/route', { method: 'POST', body: form });
     expect(res.status).toBe(422);
   });
+
+  test('mep/place places equipment and hands back the updated document and render', async () => {
+    const form = upload();
+    form.set('part', 'hvac.fan.sirocco');
+    form.set('position', JSON.stringify({ x: 1000, y: 2000, z: 2800 }));
+    form.set('rotation', '90');
+    form.set('system', 'sys.air.supply');
+    const res = await app.request('/api/mep/place', { method: 'POST', body: form });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      created: string;
+      document: string;
+      svg: string;
+      view_box: [number, number, number, number] | null;
+    };
+    expect(body.created).toBeTruthy();
+    expect(body.svg).toContain('<svg');
+    expect(body.view_box).toHaveLength(4);
+
+    const placed = new File([Buffer.from(body.document, 'base64')], 'placed.dxf');
+    const again = new FormData();
+    again.set('file', placed);
+    const inspected = await app.request('/api/drawings/inspect', {
+      method: 'POST',
+      body: again,
+    });
+    const inspection = (await inspected.json()) as { entities: number };
+    expect(inspection.entities).toBeGreaterThan(2);
+  });
+
+  test('mep/place accepts parameter overrides via `set`', async () => {
+    const form = upload();
+    form.set('part', 'hvac.fan.sirocco');
+    form.set('position', JSON.stringify({ x: 0, y: 0, z: 0 }));
+    form.set('set', JSON.stringify(['W=1000', 'L=800']));
+    const res = await app.request('/api/mep/place', { method: 'POST', body: form });
+    expect(res.status).toBe(200);
+  });
+
+  test('mep/place reports an unknown part as an engine failure, not a crash', async () => {
+    const form = upload();
+    form.set('part', 'no.such.part');
+    form.set('position', JSON.stringify({ x: 0, y: 0, z: 0 }));
+    const res = await app.request('/api/mep/place', { method: 'POST', body: form });
+    expect(res.status).toBe(422);
+  });
+
+  test('mep/place rejects a malformed position before it reaches the engine', async () => {
+    const form = upload();
+    form.set('part', 'hvac.fan.sirocco');
+    form.set('position', 'not-json');
+    const res = await app.request('/api/mep/place', { method: 'POST', body: form });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('bad request');
+  });
 });
