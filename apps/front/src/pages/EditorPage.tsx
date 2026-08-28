@@ -3,8 +3,10 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import type { Command, Profile, QueryHit } from '@opendraft/shared';
 import {
   editDrawing,
+  fetchParts,
   fetchSpecs,
   fetchSystems,
+  placeMep,
   queryNear,
   renderDrawingWithViewBox,
   routeMep,
@@ -51,7 +53,7 @@ interface Snapshot {
   viewBox: [number, number, number, number];
 }
 
-type Tool = 'line' | 'select' | 'mep';
+type Tool = 'line' | 'select' | 'mep' | 'place';
 type WorldPoint = { x: number; y: number };
 type ProfileKind = 'rect' | 'round';
 
@@ -100,6 +102,18 @@ export function EditorPage() {
   // subscribe to.
   const effectiveSystem = mepSystem || (systemsQuery.data?.[0]?.id ?? '');
   const effectiveSpec = mepSpec || (specsQuery.data?.[0]?.id ?? '');
+
+  // ── MEP equipment placement ───────────────────────────────────────────
+  // Shares `effectiveSystem` with routing above — a fan placed on 給気
+  // usually gets routed from on 給気 too, so one "current system" concept
+  // serves both tools rather than tracking it twice.
+  const [placeQuery, setPlaceQuery] = useState('');
+  const [placePartId, setPlacePartId] = useState('');
+  const partsQuery = useQuery({
+    queryKey: ['parts', placeQuery],
+    queryFn: () => fetchParts(placeQuery),
+  });
+  const effectivePlacePart = placePartId || (partsQuery.data?.[0]?.id ?? '');
 
   // Every snapshot owns an object URL; release whichever ones this component
   // itself created once nothing points at them any more.
@@ -169,6 +183,24 @@ export function EditorPage() {
     onError: (e: Error) => setError(e.message),
   });
 
+  const place = useMutation({
+    mutationFn: async (point: WorldPoint) => {
+      if (!current) throw new Error('先に図面を開いてください');
+      if (!effectivePlacePart) throw new Error('部品を選択してください');
+      return placeMep(current.file, {
+        part: effectivePlacePart,
+        position: { x: point.x, y: point.y, z: 0 },
+        ...(effectiveSystem ? { system: effectiveSystem } : {}),
+      });
+    },
+    onSuccess: (result) => {
+      setError(null);
+      setHistory((h) => (current ? [...h, current] : h));
+      setCurrent({ file: result.document, url: result.url, viewBox: result.viewBox });
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
   const pick = useMutation({
     mutationFn: async ({ point }: { point: WorldPoint; shift: boolean }) => {
       if (!current) throw new Error('先に図面を開いてください');
@@ -209,7 +241,10 @@ export function EditorPage() {
   /** True while a pointer action is about to place a point precisely — where object snap applies. */
   function wantsSnap(): boolean {
     return (
-      tool === 'line' || tool === 'mep' || (tool === 'select' && drag?.moved === true)
+      tool === 'line' ||
+      tool === 'mep' ||
+      tool === 'place' ||
+      (tool === 'select' && drag?.moved === true)
     );
   }
 
@@ -318,6 +353,11 @@ export function EditorPage() {
 
     if (tool === 'mep') {
       setMepPath((p) => [...p, point]);
+      return;
+    }
+
+    if (tool === 'place' && !place.isPending) {
+      place.mutate(point);
     }
   }
 
@@ -559,6 +599,9 @@ export function EditorPage() {
               <ToolButton active={tool === 'mep'} onClick={() => switchTool('mep')}>
                 配管
               </ToolButton>
+              <ToolButton active={tool === 'place'} onClick={() => switchTool('place')}>
+                配置
+              </ToolButton>
             </div>
 
             {tool === 'line' &&
@@ -644,6 +687,12 @@ export function EditorPage() {
               </>
             )}
 
+            {tool === 'place' && (
+              <span>
+                {effectivePlacePart ? 'クリックして配置' : '部品を検索・選択してください'}
+              </span>
+            )}
+
             {snapPoint && (
               <span className="text-sys-hydronic">
                 スナップ中 ({snapPoint.world.x.toFixed(0)}, {snapPoint.world.y.toFixed(0)}
@@ -659,7 +708,7 @@ export function EditorPage() {
             >
               元に戻す（{history.length}）
             </button>
-            {(edit.isPending || pick.isPending || route.isPending) && (
+            {(edit.isPending || pick.isPending || route.isPending || place.isPending) && (
               <span>処理中…</span>
             )}
           </div>
@@ -718,6 +767,49 @@ export function EditorPage() {
                 value={mepElevation}
                 onChange={setMepElevation}
               />
+            </div>
+          )}
+
+          {tool === 'place' && (
+            <div className="flex flex-wrap items-end gap-3 rounded border border-rule bg-paper-raised px-3 py-2 text-xs">
+              <label className="flex flex-col gap-1">
+                部品検索
+                <input
+                  type="text"
+                  value={placeQuery}
+                  onChange={(e) => setPlaceQuery(e.target.value)}
+                  placeholder="送風機、ダンパー…"
+                  className="rounded border border-rule bg-paper px-2 py-1"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                部品
+                <select
+                  value={effectivePlacePart}
+                  onChange={(e) => setPlacePartId(e.target.value)}
+                  className="rounded border border-rule bg-paper px-2 py-1"
+                >
+                  {(partsQuery.data ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name_ja}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                系統
+                <select
+                  value={effectiveSystem}
+                  onChange={(e) => setMepSystem(e.target.value)}
+                  className="rounded border border-rule bg-paper px-2 py-1"
+                >
+                  {(systemsQuery.data ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name.ja}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           )}
 
