@@ -2,8 +2,10 @@ import {
   checkReportSchema,
   editResponseSchema,
   inspectionSchema,
+  mepCheckReportSchema,
   mepPlaceResponseSchema,
   mepRouteResponseSchema,
+  mepTakeoffReportSchema,
   partDetailSchema,
   partSummarySchema,
   queryReportSchema,
@@ -14,6 +16,8 @@ import {
   type CheckReport,
   type Command,
   type Inspection,
+  type MepCheckReport,
+  type MepTakeoffReport,
   type PartDetail,
   type PartSummary,
   type Profile,
@@ -126,6 +130,26 @@ export async function checkDrawing(
   const form = new FormData();
   form.set('file', file);
   return request(checkReportSchema, `/api/drawings/check?rules=${rules}`, {
+    method: 'POST',
+    body: form,
+  });
+}
+
+/** Routed lengths by system/spec, and part counts — F-111, read-only. */
+export async function takeoffMep(file: File): Promise<MepTakeoffReport> {
+  const form = new FormData();
+  form.set('file', file);
+  return request(mepTakeoffReportSchema, '/api/mep/takeoff', {
+    method: 'POST',
+    body: form,
+  });
+}
+
+/** Unconnected ports and parts the catalogue could not resolve — read-only. */
+export async function checkMep(file: File): Promise<MepCheckReport> {
+  const form = new FormData();
+  form.set('file', file);
+  return request(mepCheckReportSchema, '/api/mep/check', {
     method: 'POST',
     body: form,
   });
