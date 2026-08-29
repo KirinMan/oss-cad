@@ -131,6 +131,21 @@ describe.if(hasEngine)('drawings', () => {
     return form;
   }
 
+  // DXF has no way to carry a domain object (CLAUDE.md, rule 5's flip side —
+  // `/api/drawings/convert` reports it as a loss): routing or placing through
+  // a `.dxf` upload keeps the derived geometry but drops the very system/spec/
+  // port data `mep takeoff` and `mep check` read. Round-tripping through
+  // `.odc` first is what keeps that data alive for these tests.
+  async function uploadOdc(): Promise<FormData> {
+    const converted = await app.request('/api/drawings/convert', {
+      method: 'POST',
+      body: upload(),
+    });
+    const form = new FormData();
+    form.set('file', new File([await converted.arrayBuffer()], 'plan.odc'));
+    return form;
+  }
+
   test('inspects an uploaded drawing', async () => {
     const res = await app.request('/api/drawings/inspect', {
       method: 'POST',
@@ -534,5 +549,83 @@ describe.if(hasEngine)('drawings', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe('bad request');
+  });
+
+  test('mep/takeoff reports nothing routed for a plain drawing', async () => {
+    const res = await app.request('/api/mep/takeoff', { method: 'POST', body: upload() });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { total_length_mm: number; routes: unknown[] };
+    expect(body.total_length_mm).toBe(0);
+    expect(body.routes).toEqual([]);
+  });
+
+  test('mep/takeoff reports length and fittings after a route is drawn', async () => {
+    const routeForm = await uploadOdc();
+    routeForm.set('system', 'sys.water.cold');
+    routeForm.set('spec', 'spec.pipe.sgp');
+    routeForm.set('profile', JSON.stringify({ kind: 'round', d: 50 }));
+    routeForm.set(
+      'path',
+      JSON.stringify([
+        { x: 10000, y: 0, z: 500 },
+        { x: 12000, y: 0, z: 500 },
+        { x: 12000, y: 2000, z: 500 },
+      ]),
+    );
+    const routed = await app.request('/api/mep/route', {
+      method: 'POST',
+      body: routeForm,
+    });
+    const { document } = (await routed.json()) as { document: string };
+
+    const form = new FormData();
+    form.set('file', new File([Buffer.from(document, 'base64')], 'routed.odc'));
+    const res = await app.request('/api/mep/takeoff', { method: 'POST', body: form });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      total_length_mm: number;
+      routes: { system: string; spec: string; length_mm: number; count: number }[];
+      fittings: Record<string, number>;
+    };
+    expect(body.total_length_mm).toBeGreaterThan(0);
+    expect(body.routes).toEqual([
+      {
+        system: 'sys.water.cold',
+        spec: 'spec.pipe.sgp',
+        length_mm: body.total_length_mm,
+        count: 2,
+      },
+    ]);
+    expect(Object.values(body.fittings).reduce((a, b) => a + b, 0)).toBe(1);
+  });
+
+  test('mep/check passes a plain drawing with nothing to connect', async () => {
+    const res = await app.request('/api/mep/check', { method: 'POST', body: upload() });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { passed: boolean; ports: number };
+    expect(body.passed).toBe(true);
+    expect(body.ports).toBe(0);
+  });
+
+  test('mep/check reports unconnected ports on equipment placed but never routed to', async () => {
+    const placeForm = await uploadOdc();
+    placeForm.set('part', 'hvac.fan.sirocco');
+    placeForm.set('position', JSON.stringify({ x: 0, y: 0, z: 0 }));
+    const placed = await app.request('/api/mep/place', {
+      method: 'POST',
+      body: placeForm,
+    });
+    const { document } = (await placed.json()) as { document: string };
+
+    const form = new FormData();
+    form.set('file', new File([Buffer.from(document, 'base64')], 'placed.odc'));
+    const res = await app.request('/api/mep/check', { method: 'POST', body: form });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      passed: boolean;
+      unconnected: { owner: string; name: string }[];
+    };
+    expect(body.passed).toBe(false);
+    expect(body.unconnected.length).toBeGreaterThan(0);
   });
 });

@@ -7,8 +7,10 @@ import {
   commandSchema,
   conversionSchema,
   editReportSchema,
+  mepCheckReportSchema,
   mepPlaceReportSchema,
   mepRouteReportSchema,
+  mepTakeoffReportSchema,
   point3Schema,
   profileSchema,
   queryReportSchema,
@@ -604,6 +606,24 @@ export function createApp() {
       );
     }
   });
+
+  // Read-only reports over the MEP connection graph — no document comes
+  // back, so these need none of `/api/mep/route`'s or `/api/mep/place`'s
+  // web-friendly envelope, and follow `/api/drawings/check` instead: the
+  // CLI's own report shape doubles as the API response.
+  app.post('/api/mep/takeoff', (c) =>
+    withUpload(c, async (path) => {
+      const report = await od(mepTakeoffReportSchema, ['mep', 'takeoff', path]);
+      return c.json(report);
+    }),
+  );
+
+  app.post('/api/mep/check', (c) =>
+    withUpload(c, async (path) => {
+      const report = await od(mepCheckReportSchema, ['mep', 'check', path]);
+      return c.json(report);
+    }),
+  );
 
   app.post('/api/drawings/convert', (c) =>
     withUpload(c, async (path, name) => {
