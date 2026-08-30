@@ -42,6 +42,10 @@ OD_BIN=$PWD/target/debug/od bun test apps/api
 The API needs the `od` binary. Either `cargo build --release -p od-cli` and put
 it on PATH, or set `OD_BIN` to `target/debug/od`.
 
+`docker compose up --build` runs the whole dev stack (api + front, `od` built
+inside the image) without a local Rust or Bun toolchain — see `Dockerfile` and
+`docker-compose.yml`.
+
 ## Rules that are not negotiable
 
 These are enforced by tests and CI, and each one exists because breaking it

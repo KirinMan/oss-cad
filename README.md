@@ -44,6 +44,20 @@ bun install
 bun run dev      # API on :8787, front end on :5173
 ```
 
+### Docker
+
+No Rust or Bun toolchain needed on the host — just Docker:
+
+```bash
+docker compose up --build   # API on :8787, front end on :5173
+```
+
+The `od` binary is built once, inside the image; editing `apps/` or
+`packages/shared` is picked up live (source is bind-mounted, and both dev
+servers run with file watching). A Rust change under `crates/` or `parts/`
+needs `docker compose up --build` again — the binary isn't rebuilt at
+container start.
+
 ## What is here
 
 | | |

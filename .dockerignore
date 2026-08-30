@@ -1,0 +1,24 @@
+# Keep the build context small and avoid shipping a host build into an
+# image expecting to build its own — a stray target/ or node_modules/ copied
+# in by accident is how "works on my machine" images happen.
+/target
+**/*.rs.bk
+node_modules
+**/node_modules
+dist
+build
+.vite
+*.tsbuildinfo
+.eslintcache
+/crates/od-wasm/pkg/
+coverage
+*.profraw
+/tests/corpus/private/
+.DS_Store
+.idea/
+.vscode
+.env
+.env.*
+!.env.example
+.git
+.github
