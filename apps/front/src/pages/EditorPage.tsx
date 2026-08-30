@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import type { Command, Profile, QueryHit } from '@opendraft/shared';
 import {
   editDrawing,
+  fetchMepPorts,
   fetchParts,
   fetchSpecs,
   fetchSystems,
@@ -114,6 +115,19 @@ export function EditorPage() {
     queryFn: () => fetchParts(placeQuery),
   });
   const effectivePlacePart = placePartId || (partsQuery.data?.[0]?.id ?? '');
+
+  // ── MEP port snapping ──────────────────────────────────────────────────
+  // Every port in the currently open document, fetched once per snapshot
+  // (keyed by its object URL) rather than per pointer-move like the
+  // geometry-based snap candidates below — a real drawing's full port list
+  // is small, so there is no need for the server-side spatial index
+  // `queryNear` exists for. A route that snaps exactly onto a port's
+  // position is what lets the connection graph link the two (F-104).
+  const portsQuery = useQuery({
+    queryKey: ['mepPorts', current?.url ?? null],
+    queryFn: () => fetchMepPorts(current!.file),
+    enabled: current !== null,
+  });
 
   // Every snapshot owns an object URL; release whichever ones this component
   // itself created once nothing points at them any more.
@@ -352,6 +366,13 @@ export function EditorPage() {
     }
 
     if (tool === 'mep') {
+      // Starting a run on a port: carry its height into the elevation field
+      // rather than making the user look it up and type it — the whole run
+      // still shares one Z (draw_route requires a planar path), so this only
+      // makes sense for the first vertex.
+      if (mepPath.length === 0 && snapPoint?.portElevation !== undefined) {
+        setMepElevation(String(snapPoint.portElevation));
+      }
       setMepPath((p) => [...p, point]);
       return;
     }
@@ -456,6 +477,8 @@ export function EditorPage() {
     left: number;
     top: number;
     world: WorldPoint;
+    /** Set when this snap matched a component's port, not just geometry. */
+    portElevation?: number;
   } | null>(null);
   const [mepPathScreen, setMepPathScreen] = useState<{ left: number; top: number }[]>([]);
 
@@ -492,10 +515,15 @@ export function EditorPage() {
     });
     setSelectionBoxes(boxes);
 
-    let snap: { left: number; top: number; world: WorldPoint } | null = null;
+    let snap: {
+      left: number;
+      top: number;
+      world: WorldPoint;
+      portElevation?: number;
+    } | null = null;
     if (hoverPoint && wantsSnap()) {
       const thresholdWorld = SNAP_RADIUS_PX / fit.scale;
-      let best: { x: number; y: number; dist: number } | null = null;
+      let best: { x: number; y: number; dist: number; z?: number } | null = null;
       for (const hit of snapCandidates) {
         for (const [x, y] of hit.snap_points_mm) {
           const dist = Math.hypot(x - hoverPoint.x, y - hoverPoint.y);
@@ -503,8 +531,25 @@ export function EditorPage() {
             best = { x, y, dist };
         }
       }
+      // A route can only start or end on a port that is not already spoken
+      // for — offering an already-connected one up as a snap target would
+      // invite drawing a second route onto it, which the connection graph
+      // (one mate per port) would just as quietly refuse to link (F-104).
+      if (tool === 'mep') {
+        for (const port of portsQuery.data ?? []) {
+          if (port.connected) continue;
+          const [x, y, z] = port.position_mm;
+          const dist = Math.hypot(x - hoverPoint.x, y - hoverPoint.y);
+          if (dist <= thresholdWorld && (!best || dist < best.dist))
+            best = { x, y, dist, z };
+        }
+      }
       snap = best
-        ? { ...toScreen(fit, best.x, best.y), world: { x: best.x, y: best.y } }
+        ? {
+            ...toScreen(fit, best.x, best.y),
+            world: { x: best.x, y: best.y },
+            ...(best.z !== undefined ? { portElevation: best.z } : {}),
+          }
         : null;
     }
     setSnapPoint(snap);
@@ -534,7 +579,17 @@ export function EditorPage() {
       setGhostBoxes([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingStart, selection, hoverPoint, snapCandidates, drag, tool, current, mepPath]);
+  }, [
+    pendingStart,
+    selection,
+    hoverPoint,
+    snapCandidates,
+    portsQuery.data,
+    drag,
+    tool,
+    current,
+    mepPath,
+  ]);
 
   const canRotate = selection.length > 0 && selection.every((s) => s.kind === 'blockref');
 
@@ -695,8 +750,10 @@ export function EditorPage() {
 
             {snapPoint && (
               <span className="text-sys-hydronic">
-                スナップ中 ({snapPoint.world.x.toFixed(0)}, {snapPoint.world.y.toFixed(0)}
-                )
+                {snapPoint.portElevation !== undefined
+                  ? '接続口にスナップ中'
+                  : 'スナップ中'}{' '}
+                ({snapPoint.world.x.toFixed(0)}, {snapPoint.world.y.toFixed(0)})
               </span>
             )}
 
