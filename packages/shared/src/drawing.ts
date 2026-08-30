@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { profileSchema, systemKindSchema } from './parts.ts';
 
 /**
  * The contract between `od --json` and everything that consumes it.
@@ -221,6 +222,32 @@ export const mepCheckReportSchema = z.object({
   skipped: z.array(z.string()),
 });
 export type MepCheckReport = z.infer<typeof mepCheckReportSchema>;
+
+/**
+ * `od --json mep ports`'s own report shape — every port in the document,
+ * connected or not. What an editing canvas offers up as snap targets (F-104):
+ * a route that lands exactly on a port's position, facing the opposite way,
+ * on a matching system, is what the connection graph links without any extra
+ * step — see `mepCheckReportSchema.unconnected`, the read-back of the same
+ * data after that link either did or didn't happen.
+ */
+export const mepPortSchema = z.object({
+  owner: z.string(),
+  name: z.string(),
+  position_mm: point3TupleSchema,
+  /** Outward — the direction a connecting run leaves along. */
+  direction: point3TupleSchema,
+  profile: profileSchema,
+  system_kind: systemKindSchema,
+  connected: z.boolean(),
+});
+export type MepPort = z.infer<typeof mepPortSchema>;
+
+export const mepPortsReportSchema = z.object({
+  file: z.string(),
+  ports: z.array(mepPortSchema),
+});
+export type MepPortsReport = z.infer<typeof mepPortsReportSchema>;
 
 /** One `od query` hit — `od --json query`'s own shape. */
 export const queryHitSchema = z.object({
