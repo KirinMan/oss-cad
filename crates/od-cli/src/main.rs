@@ -200,6 +200,9 @@ enum MepCommand {
     Takeoff { input: PathBuf },
     /// Reports unconnected ports and parts the catalogue could not resolve.
     Check { input: PathBuf },
+    /// Lists every port in the document, connected or not — what an editing
+    /// canvas offers up as snap targets so a route lands exactly on one.
+    Ports { input: PathBuf },
 }
 
 #[derive(Subcommand, Debug)]
@@ -313,6 +316,7 @@ fn main() -> Result<()> {
             ),
             MepCommand::Takeoff { input } => mep::takeoff(&input, cli.json),
             MepCommand::Check { input } => mep::check(&input, cli.json),
+            MepCommand::Ports { input } => mep::ports(&input, cli.json),
         },
     }
 }
