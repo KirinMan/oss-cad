@@ -7,6 +7,10 @@ import {
   commandSchema,
   conversionSchema,
   editReportSchema,
+  mepPlaceReportSchema,
+  mepRouteReportSchema,
+  point3Schema,
+  profileSchema,
   queryReportSchema,
   renderSchema,
   inspectionSchema,
@@ -293,6 +297,297 @@ export function createApp() {
         created: report.created,
         modified: report.modified,
         deleted: report.deleted,
+        document: Buffer.from(document).toString('base64'),
+        svg,
+        view_box: report.render?.view_box ?? null,
+      });
+    } finally {
+      await Promise.all(
+        [inPath, outPath, svgPath].map((p) =>
+          Bun.file(p)
+            .delete()
+            .catch(() => {
+              /* already gone */
+            }),
+        ),
+      );
+    }
+  });
+
+  // Draws a route through od-domain-mep, auto-inserting the fittings any 90°
+  // bends need, and hands back the updated document and a fresh render — the
+  // same envelope /api/drawings/edit uses, for a route instead of a single
+  // Command. A route cannot be a Command: od-core must never learn what a
+  // "system" or a "spec" is (rule 1), so this shells out to `od mep route`,
+  // the domain's own entry point, rather than /api/drawings/edit's generic
+  // one.
+  app.post('/api/mep/route', async (c) => {
+    const form = await c.req.formData().catch(() => null);
+    const file = form?.get('file');
+    const system = form?.get('system');
+    const spec = form?.get('spec');
+    const profileRaw = form?.get('profile');
+    const pathRaw = form?.get('path');
+    if (!(file instanceof File)) {
+      return c.json<ApiError>(
+        { error: 'no file', detail: 'send the drawing as multipart form field `file`' },
+        400,
+      );
+    }
+    if (
+      typeof system !== 'string' ||
+      typeof spec !== 'string' ||
+      typeof profileRaw !== 'string' ||
+      typeof pathRaw !== 'string'
+    ) {
+      return c.json<ApiError>(
+        {
+          error: 'missing field',
+          detail:
+            'send `system`, `spec`, `profile` (JSON) and `path` (JSON) alongside `file`',
+        },
+        400,
+      );
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return c.json<ApiError>(
+        {
+          error: 'file too large',
+          detail: `${file.size} bytes exceeds the ${MAX_UPLOAD_BYTES} byte limit`,
+        },
+        413,
+      );
+    }
+    const extension = READABLE.find((ext) => file.name.toLowerCase().endsWith(`.${ext}`));
+    if (!extension) {
+      return c.json<ApiError>(
+        {
+          error: 'unsupported format',
+          detail: `accepted: ${READABLE.map((e) => `.${e}`).join(', ')}`,
+        },
+        415,
+      );
+    }
+
+    let profileJson: unknown;
+    let pathJson: unknown;
+    try {
+      profileJson = JSON.parse(profileRaw);
+      pathJson = JSON.parse(pathRaw);
+    } catch {
+      return c.json<ApiError>(
+        { error: 'bad request', detail: '`profile` and `path` must be JSON' },
+        400,
+      );
+    }
+    const profile = profileSchema.safeParse(profileJson);
+    if (!profile.success) {
+      return c.json<ApiError>(
+        {
+          error: 'bad profile',
+          detail: profile.error.issues
+            .map((i) => `${i.path.join('.')}: ${i.message}`)
+            .join('; '),
+        },
+        400,
+      );
+    }
+    if (profile.data.kind === 'oval' || profile.data.kind === 'terminal') {
+      return c.json<ApiError>(
+        {
+          error: 'bad profile',
+          detail: `routing does not support a ${profile.data.kind} profile — use rect or round`,
+        },
+        400,
+      );
+    }
+    const path = z.array(point3Schema).min(2).safeParse(pathJson);
+    if (!path.success) {
+      return c.json<ApiError>(
+        { error: 'bad path', detail: 'a route needs at least two {x, y, z} points' },
+        400,
+      );
+    }
+
+    const profileArg =
+      profile.data.kind === 'rect'
+        ? `rect:${profile.data.w},${profile.data.h}`
+        : `round:${profile.data.d}`;
+    const pathArg = path.data.map((p) => `${p.x},${p.y},${p.z}`).join(';');
+
+    const inPath = `${tmpRoot()}/route-in-${crypto.randomUUID()}.${extension}`;
+    const outPath = `${tmpRoot()}/route-out-${crypto.randomUUID()}.${extension}`;
+    const svgPath = `${outPath}.svg`;
+    await Bun.write(inPath, file);
+    try {
+      const report = await od(mepRouteReportSchema, [
+        'mep',
+        'route',
+        inPath,
+        outPath,
+        '--system',
+        system,
+        '--spec',
+        spec,
+        '--profile',
+        profileArg,
+        '--path',
+        pathArg,
+        '--render',
+        svgPath,
+      ]);
+      const [document, svg] = await Promise.all([
+        Bun.file(outPath).arrayBuffer(),
+        Bun.file(svgPath).text(),
+      ]);
+      return c.json({
+        segments: report.segments,
+        fittings: report.fittings,
+        document: Buffer.from(document).toString('base64'),
+        svg,
+        view_box: report.render?.view_box ?? null,
+      });
+    } finally {
+      await Promise.all(
+        [inPath, outPath, svgPath].map((p) =>
+          Bun.file(p)
+            .delete()
+            .catch(() => {
+              /* already gone */
+            }),
+        ),
+      );
+    }
+  });
+
+  // Places one piece of equipment through od-domain-mep and hands back the
+  // updated document and a fresh render — the same envelope
+  // /api/drawings/edit uses, for a placement instead of a single Command. A
+  // placement cannot be a Command: od-core must never learn what a "system"
+  // or a catalogue part id is (rule 1), so this shells out to `od mep place`
+  // rather than /api/drawings/edit's generic one.
+  app.post('/api/mep/place', async (c) => {
+    const form = await c.req.formData().catch(() => null);
+    const file = form?.get('file');
+    const part = form?.get('part');
+    const positionRaw = form?.get('position');
+    const rotationRaw = form?.get('rotation');
+    const mirror = form?.get('mirror');
+    const system = form?.get('system');
+    const setRaw = form?.get('set');
+    if (!(file instanceof File)) {
+      return c.json<ApiError>(
+        { error: 'no file', detail: 'send the drawing as multipart form field `file`' },
+        400,
+      );
+    }
+    if (typeof part !== 'string' || typeof positionRaw !== 'string') {
+      return c.json<ApiError>(
+        {
+          error: 'missing field',
+          detail: 'send `part` and `position` (JSON) alongside `file`',
+        },
+        400,
+      );
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return c.json<ApiError>(
+        {
+          error: 'file too large',
+          detail: `${file.size} bytes exceeds the ${MAX_UPLOAD_BYTES} byte limit`,
+        },
+        413,
+      );
+    }
+    const extension = READABLE.find((ext) => file.name.toLowerCase().endsWith(`.${ext}`));
+    if (!extension) {
+      return c.json<ApiError>(
+        {
+          error: 'unsupported format',
+          detail: `accepted: ${READABLE.map((e) => `.${e}`).join(', ')}`,
+        },
+        415,
+      );
+    }
+
+    let positionJson: unknown;
+    try {
+      positionJson = JSON.parse(positionRaw);
+    } catch {
+      return c.json<ApiError>(
+        { error: 'bad request', detail: '`position` must be JSON' },
+        400,
+      );
+    }
+    const position = point3Schema.safeParse(positionJson);
+    if (!position.success) {
+      return c.json<ApiError>(
+        { error: 'bad position', detail: 'position must be an {x, y, z} object' },
+        400,
+      );
+    }
+    let set: string[] = [];
+    if (typeof setRaw === 'string') {
+      let setJson: unknown;
+      try {
+        setJson = JSON.parse(setRaw);
+      } catch {
+        return c.json<ApiError>(
+          { error: 'bad request', detail: '`set` must be JSON' },
+          400,
+        );
+      }
+      const parsedSet = z.array(z.string()).safeParse(setJson);
+      if (!parsedSet.success) {
+        return c.json<ApiError>(
+          { error: 'bad set', detail: '`set` must be an array of "NAME=VALUE" strings' },
+          400,
+        );
+      }
+      set = parsedSet.data;
+    }
+
+    const inPath = `${tmpRoot()}/place-in-${crypto.randomUUID()}.${extension}`;
+    const outPath = `${tmpRoot()}/place-out-${crypto.randomUUID()}.${extension}`;
+    const svgPath = `${outPath}.svg`;
+
+    const args = [
+      'mep',
+      'place',
+      inPath,
+      outPath,
+      '--part',
+      part,
+      '--x',
+      String(position.data.x),
+      '--y',
+      String(position.data.y),
+      '--z',
+      String(position.data.z),
+    ];
+    if (typeof rotationRaw === 'string' && rotationRaw !== '') {
+      args.push('--rotation', rotationRaw);
+    }
+    if (mirror === '1' || mirror === 'true') {
+      args.push('--mirror');
+    }
+    if (typeof system === 'string' && system !== '') {
+      args.push('--system', system);
+    }
+    for (const pair of set) {
+      args.push('--set', pair);
+    }
+    args.push('--render', svgPath);
+
+    await Bun.write(inPath, file);
+    try {
+      const report = await od(mepPlaceReportSchema, args);
+      const [document, svg] = await Promise.all([
+        Bun.file(outPath).arrayBuffer(),
+        Bun.file(svgPath).text(),
+      ]);
+      return c.json({
+        created: report.created,
         document: Buffer.from(document).toString('base64'),
         svg,
         view_box: report.render?.view_box ?? null,

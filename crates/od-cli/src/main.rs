@@ -143,6 +143,59 @@ enum MepCommand {
     /// Generates a small worked example: a fan, a routed duct, and the
     /// automatic elbow the route needs — proof the domain works end to end.
     Demo { output: PathBuf },
+    /// Draws a centreline route — auto-inserting the fittings any 90° bends
+    /// need — and saves the result.
+    Route {
+        input: PathBuf,
+        output: PathBuf,
+        /// A `SystemDef` id, e.g. `sys.air.supply`.
+        #[arg(long)]
+        system: String,
+        /// A `Spec` id, e.g. `spec.duct.galvanised.rect`.
+        #[arg(long)]
+        spec: String,
+        /// `rect:W,H` or `round:D`, in millimetres.
+        #[arg(long)]
+        profile: String,
+        /// Centreline vertices: `x,y,z;x,y,z;…`, at least two, all one Z.
+        #[arg(long, allow_hyphen_values = true)]
+        path: String,
+        /// Also render the result to SVG, so a caller gets both in one
+        /// invocation instead of a second full document load.
+        #[arg(long, value_name = "SVG")]
+        render: Option<PathBuf>,
+    },
+    /// Places one piece of equipment — always `Equipment`, never a fitting,
+    /// which `route` inserts automatically.
+    Place {
+        input: PathBuf,
+        output: PathBuf,
+        /// A catalogue part id, e.g. `hvac.fan.sirocco`.
+        #[arg(long)]
+        part: String,
+        #[arg(long, allow_hyphen_values = true)]
+        x: f64,
+        #[arg(long, allow_hyphen_values = true)]
+        y: f64,
+        #[arg(long, allow_hyphen_values = true, default_value_t = 0.0)]
+        z: f64,
+        /// Degrees, about +Z.
+        #[arg(long, allow_hyphen_values = true, default_value_t = 0.0)]
+        rotation: f64,
+        /// Mirrors the part's local Y axis before rotating.
+        #[arg(long)]
+        mirror: bool,
+        /// A `SystemDef` id; chooses the layer and colour it draws with.
+        #[arg(long)]
+        system: Option<String>,
+        /// Parameter overrides, as `NAME=VALUE`.
+        #[arg(long = "set", value_name = "NAME=VALUE")]
+        set: Vec<String>,
+        /// Also render the result to SVG, so a caller gets both in one
+        /// invocation instead of a second full document load.
+        #[arg(long, value_name = "SVG")]
+        render: Option<PathBuf>,
+    },
     /// Reports routed lengths by system/spec and part counts by id.
     Takeoff { input: PathBuf },
     /// Reports unconnected ports and parts the catalogue could not resolve.
@@ -216,6 +269,48 @@ fn main() -> Result<()> {
         Command::Parts { command, library } => parts(&command, library.as_deref(), cli.json),
         Command::Mep { command } => match command {
             MepCommand::Demo { output } => mep::demo(&output, cli.json),
+            MepCommand::Route {
+                input,
+                output,
+                system,
+                spec,
+                profile,
+                path,
+                render,
+            } => mep::route(
+                &input,
+                &output,
+                &system,
+                &spec,
+                &profile,
+                &path,
+                render.as_deref(),
+                cli.json,
+            ),
+            MepCommand::Place {
+                input,
+                output,
+                part,
+                x,
+                y,
+                z,
+                rotation,
+                mirror,
+                system,
+                set,
+                render,
+            } => mep::place(
+                &input,
+                &output,
+                &part,
+                od_core::Point3::new(x, y, z),
+                rotation,
+                mirror,
+                system.as_deref(),
+                &set,
+                render.as_deref(),
+                cli.json,
+            ),
             MepCommand::Takeoff { input } => mep::takeoff(&input, cli.json),
             MepCommand::Check { input } => mep::check(&input, cli.json),
         },
@@ -435,17 +530,7 @@ fn parts(command: &PartsCommand, library: Option<&std::path::Path>, json: bool) 
             report::part_list(&catalog, query.as_deref().unwrap_or(""), json);
         }
         PartsCommand::Show { id, set } => {
-            let mut overrides = std::collections::HashMap::new();
-            for pair in set {
-                let (name, value) = pair
-                    .split_once('=')
-                    .with_context(|| format!("`{pair}` should look like NAME=VALUE"))?;
-                let v: f64 = value
-                    .trim()
-                    .parse()
-                    .with_context(|| format!("`{value}` is not a number"))?;
-                overrides.insert(name.trim().to_owned(), v);
-            }
+            let overrides = mep::parse_set_overrides(set)?;
             let part = catalog
                 .part(id)
                 .with_context(|| format!("no part `{id}` in the catalogue"))?;

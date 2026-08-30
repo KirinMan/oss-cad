@@ -2,6 +2,8 @@ import {
   checkReportSchema,
   editResponseSchema,
   inspectionSchema,
+  mepPlaceResponseSchema,
+  mepRouteResponseSchema,
   partDetailSchema,
   partSummarySchema,
   queryReportSchema,
@@ -14,6 +16,7 @@ import {
   type Inspection,
   type PartDetail,
   type PartSummary,
+  type Profile,
   type QueryHit,
   type Spec,
   type SystemDef,
@@ -269,6 +272,131 @@ export async function editDrawing(file: File, command: Command): Promise<EditRes
     url,
     viewBox,
   };
+}
+
+export interface RouteResult {
+  segments: number;
+  fittings: number;
+  document: File;
+  url: string;
+  viewBox: ViewBox;
+}
+
+/**
+ * Draws a route on `file` — auto-inserting the fittings any 90° bends need —
+ * and hands back the updated document and a fresh render, the same shape
+ * {@link editDrawing} returns. A route is not a `Command`: `od-core` must
+ * never learn what a "system" or a "spec" is (rule 1), so this is a
+ * separate endpoint rather than another `Command` variant.
+ */
+export async function routeMep(
+  file: File,
+  params: {
+    system: string;
+    spec: string;
+    profile: Profile;
+    path: { x: number; y: number; z: number }[];
+  },
+): Promise<RouteResult> {
+  const form = new FormData();
+  form.set('file', file);
+  form.set('system', params.system);
+  form.set('spec', params.spec);
+  form.set('profile', JSON.stringify(params.profile));
+  form.set('path', JSON.stringify(params.path));
+
+  const res = await fetch('/api/mep/route', { method: 'POST', body: form });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as ApiError | null;
+    throw new ApiRequestError(
+      body?.error ?? `route failed with ${res.status}`,
+      res.status,
+      body?.detail,
+    );
+  }
+  const parsed = mepRouteResponseSchema.safeParse(await res.json());
+  if (!parsed.success) {
+    throw new ApiRequestError(
+      `the server sent something this build does not understand: ${parsed.error.issues[0]?.message ?? 'schema mismatch'}`,
+      res.status,
+    );
+  }
+  if (!parsed.data.view_box) {
+    throw new ApiRequestError('the server did not report a view box', res.status);
+  }
+  const bytes = Uint8Array.from(atob(parsed.data.document), (c) => c.charCodeAt(0));
+  const document = new File([bytes], file.name, { type: file.type });
+  const url = URL.createObjectURL(new Blob([parsed.data.svg], { type: 'image/svg+xml' }));
+
+  return {
+    segments: parsed.data.segments,
+    fittings: parsed.data.fittings,
+    document,
+    url,
+    viewBox: parsed.data.view_box,
+  };
+}
+
+export interface PlaceResult {
+  created: string;
+  document: File;
+  url: string;
+  viewBox: ViewBox;
+}
+
+/**
+ * Places one piece of equipment on `file` and hands back the updated
+ * document and a fresh render, the same shape {@link editDrawing} returns.
+ * A placement is not a `Command`: `od-core` must never learn what a
+ * catalogue part id or a "system" is (rule 1), so this is a separate
+ * endpoint rather than another `Command` variant.
+ */
+export async function placeMep(
+  file: File,
+  params: {
+    part: string;
+    position: { x: number; y: number; z: number };
+    rotationDegrees?: number;
+    mirror?: boolean;
+    system?: string;
+    set?: string[];
+  },
+): Promise<PlaceResult> {
+  const form = new FormData();
+  form.set('file', file);
+  form.set('part', params.part);
+  form.set('position', JSON.stringify(params.position));
+  if (params.rotationDegrees !== undefined) {
+    form.set('rotation', String(params.rotationDegrees));
+  }
+  if (params.mirror) form.set('mirror', '1');
+  if (params.system) form.set('system', params.system);
+  if (params.set?.length) form.set('set', JSON.stringify(params.set));
+
+  const res = await fetch('/api/mep/place', { method: 'POST', body: form });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as ApiError | null;
+    throw new ApiRequestError(
+      body?.error ?? `place failed with ${res.status}`,
+      res.status,
+      body?.detail,
+    );
+  }
+  const parsed = mepPlaceResponseSchema.safeParse(await res.json());
+  if (!parsed.success) {
+    throw new ApiRequestError(
+      `the server sent something this build does not understand: ${parsed.error.issues[0]?.message ?? 'schema mismatch'}`,
+      res.status,
+    );
+  }
+  if (!parsed.data.view_box) {
+    throw new ApiRequestError('the server did not report a view box', res.status);
+  }
+  const bytes = Uint8Array.from(atob(parsed.data.document), (c) => c.charCodeAt(0));
+  const document = new File([bytes], file.name, { type: file.type });
+  const url = URL.createObjectURL(new Blob([parsed.data.svg], { type: 'image/svg+xml' }));
+
+  return { created: parsed.data.created, document, url, viewBox: parsed.data.view_box };
 }
 
 /**
