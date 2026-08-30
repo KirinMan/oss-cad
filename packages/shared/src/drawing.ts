@@ -185,6 +185,43 @@ export type MepPlaceResponse = z.infer<typeof mepPlaceResponseSchema>;
 /** `[x, y, z]` in drawing millimetres. */
 export const point3TupleSchema = z.tuple([z.number(), z.number(), z.number()]);
 
+/** `od --json mep takeoff`'s own report shape — read-only, so this doubles as the API response. */
+export const mepTakeoffReportSchema = z.object({
+  file: z.string(),
+  total_length_mm: z.number(),
+  routes: z.array(
+    z.object({
+      system: z.string(),
+      spec: z.string(),
+      length_mm: z.number(),
+      count: z.number().int().nonnegative(),
+    }),
+  ),
+  /** Fitting part id → count. */
+  fittings: z.record(z.string(), z.number().int().nonnegative()),
+  /** Equipment part id → count. */
+  equipment: z.record(z.string(), z.number().int().nonnegative()),
+});
+export type MepTakeoffReport = z.infer<typeof mepTakeoffReportSchema>;
+
+/** `od --json mep check`'s own report shape — read-only, so this doubles as the API response. */
+export const mepCheckReportSchema = z.object({
+  file: z.string(),
+  passed: z.boolean(),
+  ports: z.number().int().nonnegative(),
+  connections: z.number().int().nonnegative(),
+  unconnected: z.array(
+    z.object({
+      owner: z.string(),
+      name: z.string(),
+      position_mm: point3TupleSchema,
+    }),
+  ),
+  /** Custom objects the bundled catalogue could not resolve a part for. */
+  skipped: z.array(z.string()),
+});
+export type MepCheckReport = z.infer<typeof mepCheckReportSchema>;
+
 /** One `od query` hit — `od --json query`'s own shape. */
 export const queryHitSchema = z.object({
   id: z.string(),

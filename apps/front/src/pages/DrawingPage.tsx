@@ -1,7 +1,19 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import type { CheckReport, Inspection } from '@opendraft/shared';
-import { checkDrawing, inspectDrawing, saveDrawing, type SaveFormat } from '../api.ts';
+import type {
+  CheckReport,
+  Inspection,
+  MepCheckReport,
+  MepTakeoffReport,
+} from '@opendraft/shared';
+import {
+  checkDrawing,
+  checkMep,
+  inspectDrawing,
+  saveDrawing,
+  takeoffMep,
+  type SaveFormat,
+} from '../api.ts';
 import { DrawingViewer } from '../components/DrawingViewer.tsx';
 
 /**
@@ -22,11 +34,13 @@ export function DrawingPage() {
 
   const analysis = useMutation({
     mutationFn: async (f: File) => {
-      const [inspection, check] = await Promise.all([
+      const [inspection, check, takeoff, mepCheck] = await Promise.all([
         inspectDrawing(f),
         checkDrawing(f, rules),
+        takeoffMep(f),
+        checkMep(f),
       ]);
-      return { inspection, check };
+      return { inspection, check, takeoff, mepCheck };
     },
   });
 
@@ -171,6 +185,8 @@ export function DrawingPage() {
           />
           <InspectionView data={analysis.data.inspection} />
           <CheckView data={analysis.data.check} />
+          <TakeoffView data={analysis.data.takeoff} />
+          <MepCheckView data={analysis.data.mepCheck} />
         </div>
       )}
     </div>
@@ -344,6 +360,152 @@ function CheckView({ data }: { data: CheckReport }) {
                 {f.message}
                 <span className="ml-2 font-mono text-xs text-ink-muted">{f.rule}</span>
               </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function TakeoffView({ data }: { data: MepTakeoffReport }) {
+  const hasEquipment = Object.keys(data.equipment).length > 0;
+  const hasFittings = Object.keys(data.fittings).length > 0;
+  if (data.routes.length === 0 && !hasEquipment && !hasFittings) {
+    // Nothing routed or placed — most drawings this page sees are plain
+    // architectural/duct backgrounds, and an empty MEP section would just be
+    // noise on every one of them.
+    return null;
+  }
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-xs font-semibold tracking-widest text-ink-muted uppercase">
+        拾い出し
+      </h2>
+
+      {data.routes.length > 0 && (
+        <div className="overflow-x-auto rounded border border-rule">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-rule bg-paper-raised text-left text-xs text-ink-muted">
+                <th className="px-3 py-2 font-medium">系統</th>
+                <th className="px-3 py-2 font-medium">仕様</th>
+                <th className="px-3 py-2 text-right font-medium">延長 (m)</th>
+                <th className="px-3 py-2 text-right font-medium">本数</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.routes.map((r) => (
+                <tr
+                  key={`${r.system}/${r.spec}`}
+                  className="border-b border-rule/50 last:border-0"
+                >
+                  <td className="px-3 py-1.5 font-mono text-xs">{r.system}</td>
+                  <td className="px-3 py-1.5 font-mono text-xs">{r.spec}</td>
+                  <td className="px-3 py-1.5 text-right tabular">
+                    {(r.length_mm / 1000).toFixed(1)}
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular">{r.count}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-rule bg-paper-raised font-medium">
+                <td className="px-3 py-1.5" colSpan={2}>
+                  合計
+                </td>
+                <td className="px-3 py-1.5 text-right tabular">
+                  {(data.total_length_mm / 1000).toFixed(1)}
+                </td>
+                <td className="px-3 py-1.5" />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      {(hasFittings || hasEquipment) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {hasFittings && <PartCountList title="継手" counts={data.fittings} />}
+          {hasEquipment && <PartCountList title="機器" counts={data.equipment} />}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PartCountList({
+  title,
+  counts,
+}: {
+  title: string;
+  counts: Record<string, number>;
+}) {
+  const entries = Object.entries(counts).sort(([, a], [, b]) => b - a);
+  return (
+    <div>
+      <h3 className="mb-1 text-sm font-medium">{title}</h3>
+      <ul className="space-y-0.5 text-sm tabular">
+        {entries.map(([id, count]) => (
+          <li
+            key={id}
+            className="flex justify-between gap-4 border-b border-rule/50 py-0.5"
+          >
+            <span className="font-mono text-xs">{id}</span>
+            <span>{count}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function MepCheckView({ data }: { data: MepCheckReport }) {
+  if (data.ports === 0) {
+    // No MEP objects in this drawing at all — nothing to say.
+    return null;
+  }
+
+  return (
+    <section className="space-y-2">
+      <h2 className="text-xs font-semibold tracking-widest text-ink-muted uppercase">
+        MEP接続チェック
+      </h2>
+      <p className="text-sm text-ink-muted">
+        {data.ports} 接続口、{data.connections} 接続済み
+      </p>
+
+      {data.passed ? (
+        <p className="text-sm">未接続の口はありません。</p>
+      ) : (
+        <ul className="space-y-1">
+          {data.unconnected.map((p, i) => (
+            <li
+              key={`${p.owner}-${p.name}-${i}`}
+              className="flex gap-3 rounded border border-sys-drainage/40 bg-sys-drainage/10 px-3 py-2 text-sm"
+            >
+              <span className="shrink-0 rounded bg-sys-drainage/15 px-1.5 py-0.5 text-xs font-medium text-sys-drainage">
+                未接続
+              </span>
+              <span>
+                {p.owner}
+                <span className="ml-2 font-mono text-xs text-ink-muted">
+                  {p.name} @ ({p.position_mm[0].toFixed(0)}, {p.position_mm[1].toFixed(0)}
+                  , {p.position_mm[2].toFixed(0)})
+                </span>
+              </span>
+            </li>
+          ))}
+          {data.skipped.map((id) => (
+            <li
+              key={id}
+              className="flex gap-3 rounded border border-sys-fire/40 bg-sys-fire/10 px-3 py-2 text-sm"
+            >
+              <span className="shrink-0 rounded bg-sys-fire/15 px-1.5 py-0.5 text-xs font-medium text-sys-fire">
+                部品未解決
+              </span>
+              <span className="font-mono text-xs">{id}</span>
             </li>
           ))}
         </ul>
