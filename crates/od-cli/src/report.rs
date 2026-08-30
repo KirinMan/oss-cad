@@ -837,6 +837,59 @@ pub fn mep_check(graph: &ConnectionGraph, path: &Path, json: bool) {
     }
 }
 
+pub fn mep_ports(graph: &ConnectionGraph, path: &Path, json: bool) {
+    if json {
+        #[derive(Serialize)]
+        struct PortRow<'a> {
+            owner: String,
+            name: &'a str,
+            position_mm: [f64; 3],
+            direction: [f64; 3],
+            profile: &'a od_parts::Profile,
+            system_kind: od_parts::SystemKind,
+            connected: bool,
+        }
+        #[derive(Serialize)]
+        struct Report<'a> {
+            file: String,
+            ports: Vec<PortRow<'a>>,
+        }
+        emit(&Report {
+            file: path.display().to_string(),
+            ports: graph
+                .ports_with_status()
+                .map(|(p, connected)| PortRow {
+                    owner: p.owner.to_string(),
+                    name: &p.name,
+                    position_mm: [p.position.x, p.position.y, p.position.z],
+                    direction: [p.direction.x, p.direction.y, p.direction.z],
+                    profile: &p.profile,
+                    system_kind: p.system_kind,
+                    connected,
+                })
+                .collect(),
+        });
+        return;
+    }
+
+    println!("{}", path.display());
+    for (p, connected) in graph.ports_with_status() {
+        println!(
+            "  {}  {:<8} at ({:.0}, {:.0}, {:.0})  {}",
+            p.owner,
+            p.name,
+            p.position.x,
+            p.position.y,
+            p.position.z,
+            if connected {
+                "connected"
+            } else {
+                "unconnected"
+            },
+        );
+    }
+}
+
 /// Reports the result of a spatial query.
 ///
 /// The layer and type of each hit, not just its id: an id alone tells the

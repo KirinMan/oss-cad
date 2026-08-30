@@ -281,6 +281,19 @@ pub fn check(input: &Path, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// Lists every port in the document — not just the unconnected ones `check`
+/// reports. An editing canvas needs this to offer a component's ports up as
+/// snap targets (F-104): drawing a route that lands exactly on a port's
+/// position, facing the opposite way, on a matching system, is what makes the
+/// connection graph link the two without any extra step.
+pub fn ports(input: &Path, json: bool) -> Result<()> {
+    let catalog = Catalog::bundled().context("loading the bundled part catalogue")?;
+    let (db, _) = crate::load::load(input)?;
+    let graph = ConnectionGraph::build(&db, &catalog);
+    crate::report::mep_ports(&graph, input, json);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

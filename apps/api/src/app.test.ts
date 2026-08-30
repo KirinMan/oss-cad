@@ -628,4 +628,42 @@ describe.if(hasEngine)('drawings', () => {
     expect(body.passed).toBe(false);
     expect(body.unconnected.length).toBeGreaterThan(0);
   });
+
+  test('mep/ports lists every port, connected or not, for snapping in the editor', async () => {
+    const routeForm = await uploadOdc();
+    routeForm.set('system', 'sys.water.cold');
+    routeForm.set('spec', 'spec.pipe.sgp');
+    routeForm.set('profile', JSON.stringify({ kind: 'round', d: 50 }));
+    routeForm.set(
+      'path',
+      JSON.stringify([
+        { x: 0, y: 0, z: 500 },
+        { x: 2000, y: 0, z: 500 },
+      ]),
+    );
+    const routed = await app.request('/api/mep/route', {
+      method: 'POST',
+      body: routeForm,
+    });
+    const { document } = (await routed.json()) as { document: string };
+
+    const form = new FormData();
+    form.set('file', new File([Buffer.from(document, 'base64')], 'routed.odc'));
+    const res = await app.request('/api/mep/ports', { method: 'POST', body: form });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ports: {
+        owner: string;
+        name: string;
+        position_mm: [number, number, number];
+        direction: [number, number, number];
+        system_kind: string;
+        connected: boolean;
+      }[];
+    };
+    expect(body.ports).toHaveLength(2);
+    expect(body.ports.every((p) => p.connected === false)).toBe(true);
+    expect(body.ports.map((p) => p.position_mm)).toContainEqual([0, 0, 500]);
+    expect(body.ports.map((p) => p.position_mm)).toContainEqual([2000, 0, 500]);
+  });
 });

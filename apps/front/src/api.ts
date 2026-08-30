@@ -4,6 +4,7 @@ import {
   inspectionSchema,
   mepCheckReportSchema,
   mepPlaceResponseSchema,
+  mepPortsReportSchema,
   mepRouteResponseSchema,
   mepTakeoffReportSchema,
   partDetailSchema,
@@ -17,6 +18,7 @@ import {
   type Command,
   type Inspection,
   type MepCheckReport,
+  type MepPort,
   type MepTakeoffReport,
   type PartDetail,
   type PartSummary,
@@ -153,6 +155,21 @@ export async function checkMep(file: File): Promise<MepCheckReport> {
     method: 'POST',
     body: form,
   });
+}
+
+/**
+ * Every port in the document — what the editing canvas offers up as snap
+ * targets, so a route lands exactly on a component's port instead of merely
+ * near it (F-104).
+ */
+export async function fetchMepPorts(file: File): Promise<MepPort[]> {
+  const form = new FormData();
+  form.set('file', file);
+  const { ports } = await request(mepPortsReportSchema, '/api/mep/ports', {
+    method: 'POST',
+    body: form,
+  });
+  return ports;
 }
 
 export interface RenderOptions {

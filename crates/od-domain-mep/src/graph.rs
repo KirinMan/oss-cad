@@ -91,6 +91,15 @@ impl ConnectionGraph {
             .collect()
     }
 
+    /// Every port, alongside whether it currently mates with another — what a
+    /// caller offering ports up as snap targets needs, since an already-mated
+    /// port is rarely one a user meant to route toward again.
+    pub fn ports_with_status(&self) -> impl Iterator<Item = (&WorldPort, bool)> {
+        self.ports
+            .iter()
+            .zip(self.links.iter().map(Option::is_some))
+    }
+
     /// The ports directly connected to anything owned by `owner`.
     pub fn neighbors(&self, owner: ObjectId) -> Vec<&WorldPort> {
         self.ports

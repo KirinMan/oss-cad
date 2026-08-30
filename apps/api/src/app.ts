@@ -9,6 +9,7 @@ import {
   editReportSchema,
   mepCheckReportSchema,
   mepPlaceReportSchema,
+  mepPortsReportSchema,
   mepRouteReportSchema,
   mepTakeoffReportSchema,
   point3Schema,
@@ -621,6 +622,15 @@ export function createApp() {
   app.post('/api/mep/check', (c) =>
     withUpload(c, async (path) => {
       const report = await od(mepCheckReportSchema, ['mep', 'check', path]);
+      return c.json(report);
+    }),
+  );
+
+  // Every port in the document, not just the unconnected ones `/api/mep/check`
+  // reports — what the editing canvas offers up as snap targets (F-104).
+  app.post('/api/mep/ports', (c) =>
+    withUpload(c, async (path) => {
+      const report = await od(mepPortsReportSchema, ['mep', 'ports', path]);
       return c.json(report);
     }),
   );
