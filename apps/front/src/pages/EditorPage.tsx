@@ -54,7 +54,7 @@ interface Snapshot {
   viewBox: [number, number, number, number];
 }
 
-type Tool = 'line' | 'select' | 'mep' | 'place';
+type Tool = 'line' | 'circle' | 'arc' | 'polyline' | 'select' | 'mep' | 'place';
 type WorldPoint = { x: number; y: number };
 type ProfileKind = 'rect' | 'round';
 
@@ -85,6 +85,15 @@ export function EditorPage() {
   const [layer, setLayer] = useState(DEFAULT_LAYER);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // ── Circle / arc / polyline ────────────────────────────────────────────
+  // 円 reuses `pendingStart` exactly like 線分 does — both are two clicks,
+  // the second just means "radius point" instead of "line end". 円弧 needs
+  // three (center, start, end), so it gets its own accumulator; ポリライン
+  // is open-ended, so it mirrors 配管's click-to-add-vertex/確定 pattern.
+  const [arcPoints, setArcPoints] = useState<WorldPoint[]>([]);
+  const [polylinePoints, setPolylinePoints] = useState<WorldPoint[]>([]);
+  const [polylineClosed, setPolylineClosed] = useState(false);
 
   // ── MEP routing ────────────────────────────────────────────────────────
   const [mepPath, setMepPath] = useState<WorldPoint[]>([]);
@@ -146,6 +155,8 @@ export function EditorPage() {
     setHoverPoint(null);
     setSnapCandidates([]);
     setMepPath([]);
+    setArcPoints([]);
+    setPolylinePoints([]);
   }
 
   const open = useMutation({
@@ -256,6 +267,9 @@ export function EditorPage() {
   function wantsSnap(): boolean {
     return (
       tool === 'line' ||
+      tool === 'circle' ||
+      tool === 'arc' ||
+      tool === 'polyline' ||
       tool === 'mep' ||
       tool === 'place' ||
       (tool === 'select' && drag?.moved === true)
@@ -365,6 +379,52 @@ export function EditorPage() {
       return;
     }
 
+    if (tool === 'circle') {
+      if (!pendingStart) {
+        setPendingStart(point);
+        return;
+      }
+      const radius = Math.hypot(point.x - pendingStart.x, point.y - pendingStart.y);
+      if (radius > 0) {
+        edit.mutate({
+          kind: 'add_circle',
+          layer,
+          center: { x: pendingStart.x, y: pendingStart.y, z: 0 },
+          radius,
+        });
+      }
+      setPendingStart(null);
+      return;
+    }
+
+    if (tool === 'arc') {
+      if (arcPoints.length < 2) {
+        setArcPoints((p) => [...p, point]);
+        return;
+      }
+      const [center, start] = arcPoints;
+      if (center && start) {
+        const { radius, startAngle, sweep } = arcFromThreePoints(center, start, point);
+        if (radius > 0) {
+          edit.mutate({
+            kind: 'add_arc',
+            layer,
+            center: { x: center.x, y: center.y, z: 0 },
+            radius,
+            start_angle: startAngle,
+            sweep,
+          });
+        }
+      }
+      setArcPoints([]);
+      return;
+    }
+
+    if (tool === 'polyline') {
+      setPolylinePoints((p) => [...p, point]);
+      return;
+    }
+
     if (tool === 'mep') {
       // Starting a run on a port: carry its height into the elevation field
       // rather than making the user look it up and type it — the whole run
@@ -396,6 +456,17 @@ export function EditorPage() {
       profile,
       path: mepPath.map((p) => ({ x: p.x, y: p.y, z: elevation })),
     });
+  }
+
+  function finishPolyline() {
+    if (polylinePoints.length < 2 || edit.isPending) return;
+    edit.mutate({
+      kind: 'add_polyline',
+      layer,
+      points: polylinePoints.map((p) => ({ x: p.x, y: p.y, z: 0 })),
+      closed: polylineClosed,
+    });
+    setPolylinePoints([]);
   }
 
   function onCanvasPointerDown(e: React.PointerEvent) {
@@ -481,6 +552,18 @@ export function EditorPage() {
     portElevation?: number;
   } | null>(null);
   const [mepPathScreen, setMepPathScreen] = useState<{ left: number; top: number }[]>([]);
+  const [polylinePathScreen, setPolylinePathScreen] = useState<
+    { left: number; top: number }[]
+  >([]);
+  const [circlePreview, setCirclePreview] = useState<{
+    left: number;
+    top: number;
+    r: number;
+  } | null>(null);
+  const [arcPreview, setArcPreview] = useState<{
+    center: { left: number; top: number };
+    spokes: { left: number; top: number }[];
+  } | null>(null);
 
   useEffect(() => {
     // The `.current` read here (unused beyond gating) is what tells the
@@ -495,6 +578,9 @@ export function EditorPage() {
       setGhostBoxes([]);
       setSnapPoint(null);
       setMepPathScreen([]);
+      setPolylinePathScreen([]);
+      setCirclePreview(null);
+      setArcPreview(null);
       return;
     }
 
@@ -566,6 +652,41 @@ export function EditorPage() {
       setMepPathScreen(mepPath.map((p) => toScreen(fit, p.x, p.y)));
     }
 
+    if (tool === 'polyline' && polylinePoints.length > 0) {
+      const rubberBand = snap?.world ?? hoverPoint;
+      const points = polylinePoints.map((p) => toScreen(fit, p.x, p.y));
+      if (rubberBand) points.push(toScreen(fit, rubberBand.x, rubberBand.y));
+      setPolylinePathScreen(points);
+    } else {
+      setPolylinePathScreen(polylinePoints.map((p) => toScreen(fit, p.x, p.y)));
+    }
+
+    if (tool === 'circle' && pendingStart) {
+      const radiusPoint = snap?.world ?? hoverPoint;
+      const r = radiusPoint
+        ? Math.hypot(radiusPoint.x - pendingStart.x, radiusPoint.y - pendingStart.y) *
+          fit.scale
+        : 0;
+      setCirclePreview({ ...toScreen(fit, pendingStart.x, pendingStart.y), r });
+    } else {
+      setCirclePreview(null);
+    }
+
+    if (tool === 'arc' && arcPoints.length > 0) {
+      const [center] = arcPoints;
+      if (center) {
+        const rubberBand = snap?.world ?? hoverPoint;
+        const spokePoints = arcPoints.slice(1);
+        if (rubberBand) spokePoints.push(rubberBand);
+        setArcPreview({
+          center: toScreen(fit, center.x, center.y),
+          spokes: spokePoints.map((p) => toScreen(fit, p.x, p.y)),
+        });
+      }
+    } else {
+      setArcPreview(null);
+    }
+
     if (drag?.moved && selection.length > 0) {
       const live = snap?.world ?? hoverPoint;
       if (live) {
@@ -589,6 +710,8 @@ export function EditorPage() {
     tool,
     current,
     mepPath,
+    polylinePoints,
+    arcPoints,
   ]);
 
   const canRotate = selection.length > 0 && selection.every((s) => s.kind === 'blockref');
@@ -648,6 +771,18 @@ export function EditorPage() {
               <ToolButton active={tool === 'line'} onClick={() => switchTool('line')}>
                 線分
               </ToolButton>
+              <ToolButton active={tool === 'circle'} onClick={() => switchTool('circle')}>
+                円
+              </ToolButton>
+              <ToolButton active={tool === 'arc'} onClick={() => switchTool('arc')}>
+                円弧
+              </ToolButton>
+              <ToolButton
+                active={tool === 'polyline'}
+                onClick={() => switchTool('polyline')}
+              >
+                ポリライン
+              </ToolButton>
               <ToolButton active={tool === 'select'} onClick={() => switchTool('select')}>
                 選択
               </ToolButton>
@@ -668,6 +803,63 @@ export function EditorPage() {
               ) : (
                 <span>始点をクリック</span>
               ))}
+
+            {tool === 'circle' &&
+              (pendingStart ? (
+                <span>中心を指定 — 半径をクリック</span>
+              ) : (
+                <span>中心をクリック</span>
+              ))}
+
+            {tool === 'arc' && (
+              <span>
+                {arcPoints.length === 0 && '中心をクリック'}
+                {arcPoints.length === 1 && '始点をクリック'}
+                {arcPoints.length === 2 && '終点をクリック'}
+              </span>
+            )}
+
+            {tool === 'polyline' && (
+              <span>
+                {polylinePoints.length === 0
+                  ? '頂点をクリック'
+                  : `点 ${polylinePoints.length} — クリックで追加、確定で作図`}
+              </span>
+            )}
+            {tool === 'polyline' && polylinePoints.length > 0 && (
+              <>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={polylineClosed}
+                    onChange={(e) => setPolylineClosed(e.target.checked)}
+                  />
+                  閉じる
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setPolylinePoints((p) => p.slice(0, -1))}
+                  className="rounded border border-rule px-2 py-1 text-ink"
+                >
+                  一点戻す
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPolylinePoints([])}
+                  className="rounded border border-rule px-2 py-1 text-ink"
+                >
+                  クリア
+                </button>
+                <button
+                  type="button"
+                  onClick={finishPolyline}
+                  disabled={polylinePoints.length < 2 || edit.isPending}
+                  className="rounded border border-accent bg-accent/10 px-2 py-1 text-ink disabled:opacity-40"
+                >
+                  確定
+                </button>
+              </>
+            )}
 
             {tool === 'select' && selection.length === 0 && (
               <span>クリックで選択（Shiftで複数選択）</span>
@@ -943,6 +1135,83 @@ export function EditorPage() {
                 ))}
               </svg>
             )}
+            {polylinePathScreen.length > 0 && (
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                aria-hidden
+              >
+                <polyline
+                  points={polylinePathScreen.map((p) => `${p.left},${p.top}`).join(' ')}
+                  fill="none"
+                  className="stroke-accent"
+                  strokeWidth={2}
+                  strokeDasharray="4 3"
+                />
+                {polylinePathScreen.slice(0, polylinePoints.length).map((p, i) => (
+                  <circle
+                    key={
+                      polylinePoints[i]
+                        ? `${polylinePoints[i]?.x}-${polylinePoints[i]?.y}-${i}`
+                        : i
+                    }
+                    cx={p.left}
+                    cy={p.top}
+                    r={4}
+                    className="fill-paper-raised stroke-accent"
+                    strokeWidth={2}
+                  />
+                ))}
+              </svg>
+            )}
+            {circlePreview && circlePreview.r > 0 && (
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                aria-hidden
+              >
+                <circle
+                  cx={circlePreview.left}
+                  cy={circlePreview.top}
+                  r={circlePreview.r}
+                  fill="none"
+                  className="stroke-accent"
+                  strokeWidth={2}
+                  strokeDasharray="4 3"
+                />
+                <circle
+                  cx={circlePreview.left}
+                  cy={circlePreview.top}
+                  r={3}
+                  className="fill-paper-raised stroke-accent"
+                  strokeWidth={2}
+                />
+              </svg>
+            )}
+            {arcPreview && (
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                aria-hidden
+              >
+                {arcPreview.spokes.map((p, i) => (
+                  <line
+                    key={i}
+                    x1={arcPreview.center.left}
+                    y1={arcPreview.center.top}
+                    x2={p.left}
+                    y2={p.top}
+                    className="stroke-accent"
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                  />
+                ))}
+                <circle
+                  cx={arcPreview.center.left}
+                  cy={arcPreview.center.top}
+                  r={3}
+                  className="fill-paper-raised stroke-accent"
+                  strokeWidth={2}
+                />
+              </svg>
+            )}
           </div>
         </div>
       )}
@@ -970,6 +1239,27 @@ function NumberField({
       />
     </label>
   );
+}
+
+/**
+ * Center/start/end (the classic three-click arc) into the
+ * center/radius/start_angle/sweep `Geometry::Arc` — and `add_arc` — actually
+ * store. Sweep always goes counter-clockwise from start to end, matching the
+ * DXF/`Geometry::Arc` convention; a `sweep` of exactly 0 (start and end
+ * coincide) is normalised to a full turn rather than "no arc at all", since
+ * a degenerate zero-length arc is never what three real clicks meant.
+ */
+function arcFromThreePoints(
+  center: WorldPoint,
+  start: WorldPoint,
+  end: WorldPoint,
+): { radius: number; startAngle: number; sweep: number } {
+  const radius = Math.hypot(start.x - center.x, start.y - center.y);
+  const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
+  const endAngle = Math.atan2(end.y - center.y, end.x - center.x);
+  const twoPi = 2 * Math.PI;
+  const sweep = (((endAngle - startAngle) % twoPi) + twoPi) % twoPi || twoPi;
+  return { radius, startAngle, sweep };
 }
 
 /** Distance from `point` to the nearest point on or in `bounds` — zero when `point` is inside. */
