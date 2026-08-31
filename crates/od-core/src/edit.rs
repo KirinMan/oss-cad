@@ -59,6 +59,26 @@ pub enum Command {
     RotateEntities { ids: Vec<ObjectId>, radians: f64 },
     /// Removes entities outright.
     DeleteEntities { ids: Vec<ObjectId> },
+    /// Duplicates every named entity, offset by `delta`. Unlike
+    /// [`Command::MoveEntities`], the originals are untouched — the copies
+    /// are new entities, on the same layer and in the same space as their
+    /// source.
+    CopyEntities { ids: Vec<ObjectId>, delta: Vec3 },
+    /// Reflects every named entity across the line through `a` and `b` (in
+    /// the XY plane), as new entities. When `keep_original` is `false`, the
+    /// sources are deleted too — the same "keep source objects?" choice a
+    /// real CAD's mirror command asks.
+    MirrorEntities {
+        ids: Vec<ObjectId>,
+        a: Point3,
+        b: Point3,
+        keep_original: bool,
+    },
+    /// Creates a new entity parallel to `id`, offset by `distance`. Positive
+    /// is outward: away from the centre for a circle or arc, to the left of
+    /// the direction from the line's first point to its second. The source
+    /// is never modified.
+    OffsetEntity { id: ObjectId, distance: f64 },
 }
 
 /// What a [`Command`] did, so a caller — a UI selecting what it just drew, a
@@ -190,6 +210,121 @@ impl Command {
                     outcome.deleted.push(id);
                 }
             }
+            Command::CopyEntities { ids, delta } => {
+                for &id in ids {
+                    let entity = tx.db().entity(id).ok_or(DbError::NoSuchObject(id))?;
+                    let (layer, owner_space, style, visible) = (
+                        entity.layer,
+                        entity.owner_space,
+                        entity.style.clone(),
+                        entity.visible,
+                    );
+                    let mut geom = entity.geom.clone();
+                    if !try_translate(&mut geom, *delta) {
+                        return Err(DbError::UnsupportedEdit {
+                            id,
+                            geometry: geom.type_name().to_owned(),
+                        });
+                    }
+                    let new_id = tx.add_entity(Entity {
+                        layer,
+                        geom,
+                        style,
+                        visible,
+                        owner_space,
+                    })?;
+                    outcome.created.push(new_id);
+                }
+            }
+            Command::MirrorEntities {
+                ids,
+                a,
+                b,
+                keep_original,
+            } => {
+                if a.distance_to(*b) < od_geom2d::tol::POINT_EPS {
+                    return Err(DbError::InvalidCommand(
+                        "a mirror line needs two distinct points".into(),
+                    ));
+                }
+                for &id in ids {
+                    let entity = tx.db().entity(id).ok_or(DbError::NoSuchObject(id))?;
+                    let (layer, owner_space, style, visible) = (
+                        entity.layer,
+                        entity.owner_space,
+                        entity.style.clone(),
+                        entity.visible,
+                    );
+                    let mut geom = entity.geom.clone();
+                    if !try_mirror(&mut geom, *a, *b) {
+                        return Err(DbError::UnsupportedEdit {
+                            id,
+                            geometry: geom.type_name().to_owned(),
+                        });
+                    }
+                    let new_id = tx.add_entity(Entity {
+                        layer,
+                        geom,
+                        style,
+                        visible,
+                        owner_space,
+                    })?;
+                    outcome.created.push(new_id);
+                    if !keep_original {
+                        tx.remove(id)?;
+                        outcome.deleted.push(id);
+                    }
+                }
+            }
+            Command::OffsetEntity { id, distance } => {
+                let entity = tx.db().entity(*id).ok_or(DbError::NoSuchObject(*id))?;
+                let (layer, owner_space, style, visible) = (
+                    entity.layer,
+                    entity.owner_space,
+                    entity.style.clone(),
+                    entity.visible,
+                );
+                let mut geom = entity.geom.clone();
+                match &mut geom {
+                    Geometry::Line { a, b } => {
+                        let dx = b.x - a.x;
+                        let dy = b.y - a.y;
+                        let len = (dx * dx + dy * dy).sqrt();
+                        if len < tol::POINT_EPS {
+                            return Err(DbError::InvalidCommand(
+                                "cannot offset a zero-length line".into(),
+                            ));
+                        }
+                        let shift = Vec3::new(-dy / len * *distance, dx / len * *distance, 0.0);
+                        *a = *a + shift;
+                        *b = *b + shift;
+                    }
+                    Geometry::Circle { radius, .. } | Geometry::Arc { radius, .. } => {
+                        let new_radius = *radius + *distance;
+                        if new_radius <= 0.0 {
+                            return Err(DbError::InvalidCommand(format!(
+                                "offsetting by {distance} would leave a radius of \
+                                 {new_radius}, which is not positive"
+                            )));
+                        }
+                        *radius = new_radius;
+                    }
+                    _ => {
+                        return Err(DbError::UnsupportedEdit {
+                            id: *id,
+                            geometry: geom.type_name().to_owned(),
+                        });
+                    }
+                }
+                let new_id = tx.add_entity(Entity {
+                    layer,
+                    geom,
+                    style,
+                    visible,
+                    owner_space,
+                })?;
+                outcome.created.push(new_id);
+            }
         }
         Ok(outcome)
     }
@@ -263,6 +398,85 @@ fn try_translate(geom: &mut Geometry, delta: Vec3) -> bool {
 fn try_rotate(geom: &mut Geometry, radians: f64) -> bool {
     match geom {
         Geometry::BlockRef(block_ref) => block_ref.rotation += radians,
+        _ => return false,
+    }
+    true
+}
+
+/// Reflects `p`'s X and Y across the line through `a` and `b`; Z passes
+/// through unchanged, so this is really a reflection across the vertical
+/// plane containing that line — the natural reading for a 2D editor working
+/// in the XY plane, and consistent with [`try_translate`]'s own treatment of
+/// a `Point3`'s Z on entities that carry one.
+fn reflect_xy(p: Point3, a: Point3, b: Point3) -> Point3 {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    let len_sq = dx * dx + dy * dy;
+    let ap_x = p.x - a.x;
+    let ap_y = p.y - a.y;
+    let t = (ap_x * dx + ap_y * dy) / len_sq;
+    let proj_x = a.x + t * dx;
+    let proj_y = a.y + t * dy;
+    Point3::new(2.0 * proj_x - p.x, 2.0 * proj_y - p.y, p.z)
+}
+
+/// Reflects geometry across the line through `a` and `b`, and reports
+/// whether it knew how to — the same narrow, fail-loudly contract as
+/// [`try_translate`] and [`try_rotate`]. Deliberately covers only the kinds
+/// this session's draw commands just added creation for (`Point`, `Line`,
+/// `Circle`, `Arc`): mirroring a `BlockRef` correctly needs a full
+/// transform-decomposition treatment (reflect its local basis, then recover
+/// rotation/scale from the result) rather than just moving its insertion
+/// point, and mirroring a curved (bulged) polyline span needs its bulge sign
+/// and vertex order both reversed together — both are real features, just
+/// not ones a caller should get a plausible-looking wrong answer from today.
+fn try_mirror(geom: &mut Geometry, a: Point3, b: Point3) -> bool {
+    match geom {
+        Geometry::Point(p) => *p = reflect_xy(*p, a, b),
+        Geometry::Line { a: la, b: lb } => {
+            *la = reflect_xy(*la, a, b);
+            *lb = reflect_xy(*lb, a, b);
+        }
+        Geometry::Circle { center, .. } => {
+            *center = reflect_xy(*center, a, b);
+        }
+        Geometry::Arc {
+            center,
+            radius,
+            start_angle,
+            sweep,
+            ..
+        } => {
+            let start_pt = *center
+                + Vec3::new(
+                    *radius * start_angle.cos(),
+                    *radius * start_angle.sin(),
+                    0.0,
+                );
+            let end_angle = *start_angle + *sweep;
+            let end_pt =
+                *center + Vec3::new(*radius * end_angle.cos(), *radius * end_angle.sin(), 0.0);
+            let new_center = reflect_xy(*center, a, b);
+            let reflected_start = reflect_xy(start_pt, a, b);
+            let reflected_end = reflect_xy(end_pt, a, b);
+            // Mirroring reverses the sense of travel around the arc, so the
+            // new start is the reflection of the old *end* — reusing the
+            // old start/end labels as-is would silently swap which side of
+            // the arc gets drawn.
+            let new_start_angle =
+                (reflected_end.y - new_center.y).atan2(reflected_end.x - new_center.x);
+            let new_end_angle =
+                (reflected_start.y - new_center.y).atan2(reflected_start.x - new_center.x);
+            let two_pi = std::f64::consts::TAU;
+            let raw_sweep = ((new_end_angle - new_start_angle) % two_pi + two_pi) % two_pi;
+            *center = new_center;
+            *start_angle = new_start_angle;
+            *sweep = if raw_sweep < tol::ANGLE_EPS {
+                two_pi
+            } else {
+                raw_sweep
+            };
+        }
         _ => return false,
     }
     true
@@ -425,6 +639,325 @@ mod tests {
             )
             .expect_err("one point is not a polyline");
         assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn copy_entities_creates_a_translated_duplicate_and_keeps_the_original() {
+        let mut d = doc();
+        let source = d
+            .execute(
+                "Draw",
+                &Command::AddLine {
+                    layer: "0".into(),
+                    a: Point3::ORIGIN,
+                    b: Point3::new(1000.0, 0.0, 0.0),
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let outcome = d
+            .execute(
+                "Copy",
+                &Command::CopyEntities {
+                    ids: vec![source],
+                    delta: Vec3::new(0.0, 500.0, 0.0),
+                },
+            )
+            .expect("commits");
+        assert_eq!(outcome.created.len(), 1);
+        let copy_id = outcome.created[0];
+        assert_ne!(copy_id, source);
+
+        assert_eq!(
+            d.db.entity(source).expect("original untouched").geom,
+            Geometry::Line {
+                a: Point3::ORIGIN,
+                b: Point3::new(1000.0, 0.0, 0.0),
+            }
+        );
+        assert_eq!(
+            d.db.entity(copy_id).expect("copy exists").geom,
+            Geometry::Line {
+                a: Point3::new(0.0, 500.0, 0.0),
+                b: Point3::new(1000.0, 500.0, 0.0),
+            }
+        );
+    }
+
+    #[test]
+    fn mirror_entities_reflects_a_line_and_keeps_the_original_by_default() {
+        let mut d = doc();
+        let source = d
+            .execute(
+                "Draw",
+                &Command::AddLine {
+                    layer: "0".into(),
+                    a: Point3::new(100.0, 0.0, 0.0),
+                    b: Point3::new(100.0, 500.0, 0.0),
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        // Mirror across the Y axis.
+        let outcome = d
+            .execute(
+                "Mirror",
+                &Command::MirrorEntities {
+                    ids: vec![source],
+                    a: Point3::ORIGIN,
+                    b: Point3::new(0.0, 1.0, 0.0),
+                    keep_original: true,
+                },
+            )
+            .expect("commits");
+        let mirrored_id = outcome.created[0];
+
+        assert!(d.db.entity(source).is_some(), "kept by default");
+        assert_eq!(
+            d.db.entity(mirrored_id).expect("mirrored exists").geom,
+            Geometry::Line {
+                a: Point3::new(-100.0, 0.0, 0.0),
+                b: Point3::new(-100.0, 500.0, 0.0),
+            }
+        );
+    }
+
+    #[test]
+    fn mirror_entities_deletes_the_source_when_not_kept() {
+        let mut d = doc();
+        let source = d
+            .execute(
+                "Draw",
+                &Command::AddCircle {
+                    layer: "0".into(),
+                    center: Point3::new(100.0, 0.0, 0.0),
+                    radius: 50.0,
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let outcome = d
+            .execute(
+                "Mirror",
+                &Command::MirrorEntities {
+                    ids: vec![source],
+                    a: Point3::ORIGIN,
+                    b: Point3::new(0.0, 1.0, 0.0),
+                    keep_original: false,
+                },
+            )
+            .expect("commits");
+
+        assert!(d.db.entity(source).is_none(), "source deleted");
+        assert_eq!(outcome.deleted, vec![source]);
+        assert_eq!(outcome.created.len(), 1);
+    }
+
+    #[test]
+    fn mirror_entities_rejects_a_degenerate_line() {
+        let mut d = doc();
+        let source = d
+            .execute(
+                "Draw",
+                &Command::AddLine {
+                    layer: "0".into(),
+                    a: Point3::ORIGIN,
+                    b: Point3::new(100.0, 0.0, 0.0),
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let err = d
+            .execute(
+                "Mirror",
+                &Command::MirrorEntities {
+                    ids: vec![source],
+                    a: Point3::ORIGIN,
+                    b: Point3::ORIGIN,
+                    keep_original: true,
+                },
+            )
+            .expect_err("two coincident points do not define a line");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn mirror_arc_reverses_its_sweep_direction() {
+        let mut d = doc();
+        // A quarter circle from 0° to 90°.
+        let source = d
+            .execute(
+                "Draw",
+                &Command::AddArc {
+                    layer: "0".into(),
+                    center: Point3::ORIGIN,
+                    radius: 500.0,
+                    start_angle: 0.0,
+                    sweep: std::f64::consts::FRAC_PI_2,
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        // Mirror across the X axis.
+        let outcome = d
+            .execute(
+                "Mirror",
+                &Command::MirrorEntities {
+                    ids: vec![source],
+                    a: Point3::ORIGIN,
+                    b: Point3::new(1.0, 0.0, 0.0),
+                    keep_original: false,
+                },
+            )
+            .expect("commits");
+        let Some(Geometry::Arc {
+            center,
+            radius,
+            start_angle,
+            sweep,
+            ..
+        }) = d.db.entity(outcome.created[0]).map(|e| e.geom.clone())
+        else {
+            panic!("expected a mirrored Arc");
+        };
+        assert!(od_geom2d::tol::eq_len(center.x, 0.0));
+        assert!(od_geom2d::tol::eq_len(center.y, 0.0));
+        assert!(od_geom2d::tol::eq_len(radius, 500.0));
+        // The mirrored quarter circle spans -90° to 0°.
+        assert!(
+            od_geom2d::tol::eq_len(start_angle, -std::f64::consts::FRAC_PI_2),
+            "start_angle was {start_angle}"
+        );
+        assert!(
+            od_geom2d::tol::eq_len(sweep, std::f64::consts::FRAC_PI_2),
+            "sweep was {sweep}"
+        );
+    }
+
+    #[test]
+    fn offset_line_shifts_perpendicular_to_its_own_direction() {
+        let mut d = doc();
+        let source = d
+            .execute(
+                "Draw",
+                &Command::AddLine {
+                    layer: "0".into(),
+                    a: Point3::ORIGIN,
+                    b: Point3::new(1000.0, 0.0, 0.0),
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let outcome = d
+            .execute(
+                "Offset",
+                &Command::OffsetEntity {
+                    id: source,
+                    distance: 200.0,
+                },
+            )
+            .expect("commits");
+
+        assert!(d.db.entity(source).is_some(), "source untouched");
+        assert_eq!(
+            d.db.entity(outcome.created[0]).expect("exists").geom,
+            Geometry::Line {
+                a: Point3::new(0.0, 200.0, 0.0),
+                b: Point3::new(1000.0, 200.0, 0.0),
+            }
+        );
+    }
+
+    #[test]
+    fn offset_circle_grows_or_shrinks_its_radius() {
+        let mut d = doc();
+        let source = d
+            .execute(
+                "Draw",
+                &Command::AddCircle {
+                    layer: "0".into(),
+                    center: Point3::ORIGIN,
+                    radius: 500.0,
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let outcome = d
+            .execute(
+                "Offset",
+                &Command::OffsetEntity {
+                    id: source,
+                    distance: 100.0,
+                },
+            )
+            .expect("commits");
+        let Some(Geometry::Circle { radius, .. }) =
+            d.db.entity(outcome.created[0]).map(|e| e.geom.clone())
+        else {
+            panic!("expected a Circle");
+        };
+        assert!(od_geom2d::tol::eq_len(radius, 600.0));
+    }
+
+    #[test]
+    fn offset_rejects_a_distance_that_collapses_the_radius() {
+        let mut d = doc();
+        let source = d
+            .execute(
+                "Draw",
+                &Command::AddCircle {
+                    layer: "0".into(),
+                    center: Point3::ORIGIN,
+                    radius: 500.0,
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let err = d
+            .execute(
+                "Offset",
+                &Command::OffsetEntity {
+                    id: source,
+                    distance: -600.0,
+                },
+            )
+            .expect_err("a negative radius is not a circle");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn offset_rejects_an_unsupported_kind() {
+        let mut d = doc();
+        let source = d
+            .execute(
+                "Draw",
+                &Command::AddPolyline {
+                    layer: "0".into(),
+                    points: vec![Point3::ORIGIN, Point3::new(100.0, 0.0, 0.0)],
+                    closed: false,
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let err = d
+            .execute(
+                "Offset",
+                &Command::OffsetEntity {
+                    id: source,
+                    distance: 10.0,
+                },
+            )
+            .expect_err("polyline offset is not implemented yet");
+        assert!(matches!(err, DbError::UnsupportedEdit { .. }));
     }
 
     #[test]
