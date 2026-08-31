@@ -90,6 +90,28 @@ export const commandSchema = z.discriminatedUnion('kind', [
     b: point3Schema,
   }),
   z.object({
+    kind: z.literal('add_circle'),
+    layer: z.string(),
+    center: point3Schema,
+    radius: z.number().positive(),
+  }),
+  z.object({
+    kind: z.literal('add_arc'),
+    layer: z.string(),
+    center: point3Schema,
+    radius: z.number().positive(),
+    /** Radians, matching `Geometry::Arc`'s own convention. */
+    start_angle: z.number(),
+    sweep: z.number(),
+  }),
+  z.object({
+    kind: z.literal('add_polyline'),
+    layer: z.string(),
+    /** Must all share one Z — `Geometry::Polyline` is planar. */
+    points: z.array(point3Schema).min(2),
+    closed: z.boolean(),
+  }),
+  z.object({
     kind: z.literal('move_entities'),
     ids: z.array(z.string()),
     delta: point3Schema,
