@@ -95,6 +95,17 @@ export function EditorPage() {
   const [polylinePoints, setPolylinePoints] = useState<WorldPoint[]>([]);
   const [polylineClosed, setPolylineClosed] = useState(false);
 
+  // ── Mirror / offset (select tool actions) ──────────────────────────────
+  // Mirroring needs two extra clicks to define the mirror line, but the
+  // selection they act on only exists in the 選択 tool — switching to a
+  // dedicated tool would lose it (switchTool resets selection). So mirroring
+  // is armed from inside 選択 instead: pointerdown while armed accumulates
+  // mirror-line points rather than doing its usual pick-or-drag.
+  const [mirrorArmed, setMirrorArmed] = useState(false);
+  const [mirrorPoints, setMirrorPoints] = useState<WorldPoint[]>([]);
+  const [mirrorKeepOriginal, setMirrorKeepOriginal] = useState(true);
+  const [offsetDistance, setOffsetDistance] = useState('100');
+
   // ── MEP routing ────────────────────────────────────────────────────────
   const [mepPath, setMepPath] = useState<WorldPoint[]>([]);
   const [mepSystem, setMepSystem] = useState('');
@@ -157,6 +168,8 @@ export function EditorPage() {
     setMepPath([]);
     setArcPoints([]);
     setPolylinePoints([]);
+    setMirrorArmed(false);
+    setMirrorPoints([]);
   }
 
   const open = useMutation({
@@ -272,7 +285,7 @@ export function EditorPage() {
       tool === 'polyline' ||
       tool === 'mep' ||
       tool === 'place' ||
-      (tool === 'select' && drag?.moved === true)
+      (tool === 'select' && (drag?.moved === true || mirrorArmed))
     );
   }
 
@@ -473,6 +486,20 @@ export function EditorPage() {
     if (tool !== 'select' || !current || edit.isPending) return;
     const world = toWorld(e.clientX, e.clientY);
     if (!world) return;
+
+    if (mirrorArmed) {
+      const point = snapPoint?.world ?? world;
+      const next = [...mirrorPoints, point];
+      if (next.length === 2) {
+        const [a, b] = next;
+        if (a && b) mirrorSelection(a, b);
+        setMirrorPoints([]);
+      } else {
+        setMirrorPoints(next);
+      }
+      return;
+    }
+
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag({
       downClient: { x: e.clientX, y: e.clientY },
@@ -494,11 +521,15 @@ export function EditorPage() {
 
     if (moved) {
       if (selection.length === 0) return;
-      edit.mutate({
-        kind: 'move_entities',
-        ids: selection.map((s) => s.id),
-        delta: { x: upPoint.x - downWorld.x, y: upPoint.y - downWorld.y, z: 0 },
-      });
+      const delta = { x: upPoint.x - downWorld.x, y: upPoint.y - downWorld.y, z: 0 };
+      // Alt+drag copies instead of moving — the same modifier convention a
+      // real CAD's drag-copy uses, and it reuses the whole move gesture
+      // (ghost preview included) rather than needing a separate mode.
+      if (e.altKey) {
+        edit.mutate({ kind: 'copy_entities', ids: selection.map((s) => s.id), delta });
+      } else {
+        edit.mutate({ kind: 'move_entities', ids: selection.map((s) => s.id), delta });
+      }
       return;
     }
     pick.mutate({ point: upPoint, shift });
@@ -516,6 +547,26 @@ export function EditorPage() {
       ids: selection.map((s) => s.id),
       radians: (degrees * Math.PI) / 180,
     });
+  }
+
+  function mirrorSelection(a: WorldPoint, b: WorldPoint) {
+    if (selection.length === 0) return;
+    edit.mutate({
+      kind: 'mirror_entities',
+      ids: selection.map((s) => s.id),
+      a: { x: a.x, y: a.y, z: 0 },
+      b: { x: b.x, y: b.y, z: 0 },
+      keep_original: mirrorKeepOriginal,
+    });
+    setMirrorArmed(false);
+  }
+
+  function offsetSelection() {
+    const id = selection[0]?.id;
+    if (!id) return;
+    const distance = Number(offsetDistance);
+    if (!Number.isFinite(distance) || distance === 0) return;
+    edit.mutate({ kind: 'offset_entity', id, distance });
   }
 
   // Delete/Backspace removes the current selection — but not while a text
@@ -564,6 +615,9 @@ export function EditorPage() {
     center: { left: number; top: number };
     spokes: { left: number; top: number }[];
   } | null>(null);
+  const [mirrorLineScreen, setMirrorLineScreen] = useState<
+    { left: number; top: number }[]
+  >([]);
 
   useEffect(() => {
     // The `.current` read here (unused beyond gating) is what tells the
@@ -581,6 +635,7 @@ export function EditorPage() {
       setPolylinePathScreen([]);
       setCirclePreview(null);
       setArcPreview(null);
+      setMirrorLineScreen([]);
       return;
     }
 
@@ -687,6 +742,15 @@ export function EditorPage() {
       setArcPreview(null);
     }
 
+    if (mirrorArmed && mirrorPoints.length > 0) {
+      const rubberBand = snap?.world ?? hoverPoint;
+      const points = mirrorPoints.map((p) => toScreen(fit, p.x, p.y));
+      if (rubberBand) points.push(toScreen(fit, rubberBand.x, rubberBand.y));
+      setMirrorLineScreen(points);
+    } else {
+      setMirrorLineScreen([]);
+    }
+
     if (drag?.moved && selection.length > 0) {
       const live = snap?.world ?? hoverPoint;
       if (live) {
@@ -712,6 +776,8 @@ export function EditorPage() {
     mepPath,
     polylinePoints,
     arcPoints,
+    mirrorArmed,
+    mirrorPoints,
   ]);
 
   const canRotate = selection.length > 0 && selection.every((s) => s.kind === 'blockref');
@@ -861,12 +927,42 @@ export function EditorPage() {
               </>
             )}
 
-            {tool === 'select' && selection.length === 0 && (
+            {tool === 'select' && mirrorArmed && (
+              <>
+                <span>
+                  {mirrorPoints.length === 0
+                    ? 'ミラー線の始点をクリック'
+                    : 'ミラー線の終点をクリック'}
+                </span>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={mirrorKeepOriginal}
+                    onChange={(e) => setMirrorKeepOriginal(e.target.checked)}
+                  />
+                  元を残す
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMirrorArmed(false);
+                    setMirrorPoints([]);
+                  }}
+                  className="rounded border border-rule px-2 py-1 text-ink"
+                >
+                  キャンセル
+                </button>
+              </>
+            )}
+
+            {tool === 'select' && !mirrorArmed && selection.length === 0 && (
               <span>クリックで選択（Shiftで複数選択）</span>
             )}
-            {tool === 'select' && selection.length > 0 && (
+            {tool === 'select' && !mirrorArmed && selection.length > 0 && (
               <>
-                <span>選択中: {selection.length}件（ドラッグで移動）</span>
+                <span>
+                  選択中: {selection.length}件（ドラッグで移動、Alt+ドラッグでコピー）
+                </span>
                 {canRotate && (
                   <>
                     <button
@@ -882,6 +978,30 @@ export function EditorPage() {
                       className="rounded border border-rule px-2 py-1 text-ink"
                     >
                       ↻90°
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setMirrorArmed(true)}
+                  className="rounded border border-rule px-2 py-1 text-ink"
+                >
+                  ミラー
+                </button>
+                {selection.length === 1 && (
+                  <>
+                    <input
+                      type="number"
+                      value={offsetDistance}
+                      onChange={(e) => setOffsetDistance(e.target.value)}
+                      className="w-20 rounded border border-rule bg-paper px-2 py-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={offsetSelection}
+                      className="rounded border border-rule px-2 py-1 text-ink"
+                    >
+                      オフセット
                     </button>
                   </>
                 )}
@@ -1210,6 +1330,34 @@ export function EditorPage() {
                   className="fill-paper-raised stroke-accent"
                   strokeWidth={2}
                 />
+              </svg>
+            )}
+            {mirrorLineScreen.length > 0 && (
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                aria-hidden
+              >
+                <polyline
+                  points={mirrorLineScreen.map((p) => `${p.left},${p.top}`).join(' ')}
+                  fill="none"
+                  className="stroke-accent"
+                  strokeWidth={2}
+                  strokeDasharray="4 3"
+                />
+                {mirrorLineScreen.slice(0, mirrorPoints.length).map((p, i) => (
+                  <circle
+                    key={
+                      mirrorPoints[i]
+                        ? `${mirrorPoints[i]?.x}-${mirrorPoints[i]?.y}-${i}`
+                        : i
+                    }
+                    cx={p.left}
+                    cy={p.top}
+                    r={4}
+                    className="fill-paper-raised stroke-accent"
+                    strokeWidth={2}
+                  />
+                ))}
               </svg>
             )}
           </div>
