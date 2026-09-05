@@ -98,7 +98,7 @@ impl MeshData {
     /// otherwise is a bug worth catching at the boundary.
     #[must_use]
     pub fn is_well_formed(&self) -> bool {
-        self.indices.len() % 3 == 0
+        self.indices.len().is_multiple_of(3)
             && self
                 .indices
                 .iter()

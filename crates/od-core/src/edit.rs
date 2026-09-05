@@ -433,14 +433,14 @@ impl Command {
                 // caught here rather than silently moving every other
                 // vertex's height along with it, or silently dropping the
                 // new Z on the floor.
-                if let Geometry::Polyline { elevation, .. } = &entity.geom {
-                    if !tol::eq_len(position.z, *elevation) {
-                        return Err(DbError::InvalidCommand(format!(
-                            "this polyline's vertices all share elevation {elevation}; \
+                if let Geometry::Polyline { elevation, .. } = &entity.geom
+                    && !tol::eq_len(position.z, *elevation)
+                {
+                    return Err(DbError::InvalidCommand(format!(
+                        "this polyline's vertices all share elevation {elevation}; \
                              {} does not match",
-                            position.z
-                        )));
-                    }
+                        position.z
+                    )));
                 }
                 let index = *index;
                 let position = *position;

@@ -359,10 +359,10 @@ impl Database {
         type_id: impl Into<String>,
         data: serde_json::Value,
     ) -> Result<ObjectId> {
-        if let Some(owner) = owner {
-            if !self.objects.contains_key(&owner) {
-                return Err(DbError::NoSuchObject(owner));
-            }
+        if let Some(owner) = owner
+            && !self.objects.contains_key(&owner)
+        {
+            return Err(DbError::NoSuchObject(owner));
         }
         let id = self.ids.next_id();
         self.objects.insert(
@@ -387,10 +387,10 @@ impl Database {
             .objects
             .shift_remove(&id)
             .ok_or(DbError::NoSuchObject(id))?;
-        if let Some(owner) = obj.owner {
-            if let Some(block) = self.tables.blocks.get_mut(owner) {
-                block.entities.retain(|e| *e != id);
-            }
+        if let Some(owner) = obj.owner
+            && let Some(block) = self.tables.blocks.get_mut(owner)
+        {
+            block.entities.retain(|e| *e != id);
         }
         Ok(obj)
     }
@@ -403,13 +403,12 @@ impl Database {
         let owner = obj.owner;
         self.ids.observe(id);
         self.objects.insert(id, obj);
-        if let Some(owner) = owner {
-            if let Some(block) = self.tables.blocks.get_mut(owner) {
-                if !block.entities.contains(&id) {
-                    let at = index_in_owner.unwrap_or(block.entities.len());
-                    block.entities.insert(at.min(block.entities.len()), id);
-                }
-            }
+        if let Some(owner) = owner
+            && let Some(block) = self.tables.blocks.get_mut(owner)
+            && !block.entities.contains(&id)
+        {
+            let at = index_in_owner.unwrap_or(block.entities.len());
+            block.entities.insert(at.min(block.entities.len()), id);
         }
         Ok(())
     }
@@ -585,14 +584,14 @@ impl Database {
                         what: "owner space",
                     });
                 }
-                if let Geometry::BlockRef(b) = &e.geom {
-                    if self.tables.blocks.get(b.block).is_none() {
-                        problems.push(DbError::DanglingReference {
-                            from: id,
-                            to: b.block,
-                            what: "block definition",
-                        });
-                    }
+                if let Geometry::BlockRef(b) = &e.geom
+                    && self.tables.blocks.get(b.block).is_none()
+                {
+                    problems.push(DbError::DanglingReference {
+                        from: id,
+                        to: b.block,
+                        what: "block definition",
+                    });
                 }
             }
             for (app, rec) in &obj.xdata.records {
