@@ -79,6 +79,16 @@ pub enum Command {
     /// the direction from the line's first point to its second. The source
     /// is never modified.
     OffsetEntity { id: ObjectId, distance: f64 },
+    /// Moves one vertex of `id` — a line's endpoint (`index` 0 or 1), or one
+    /// of a polyline's vertices — to `position`, leaving every other vertex
+    /// where it is. Grip editing, as opposed to [`Command::MoveEntities`]'s
+    /// whole-entity translation. See [`crate::entity::Geometry::editable_vertices`]
+    /// for exactly which kinds and indices this accepts.
+    SetVertex {
+        id: ObjectId,
+        index: usize,
+        position: Point3,
+    },
 }
 
 /// What a [`Command`] did, so a caller — a UI selecting what it just drew, a
@@ -325,6 +335,63 @@ impl Command {
                 })?;
                 outcome.created.push(new_id);
             }
+            Command::SetVertex {
+                id,
+                index,
+                position,
+            } => {
+                let entity = tx.db().entity(*id).ok_or(DbError::NoSuchObject(*id))?;
+                let geometry_name = entity.geom.type_name().to_owned();
+                let count = entity.geom.editable_vertices().len();
+                if count == 0 {
+                    return Err(DbError::UnsupportedEdit {
+                        id: *id,
+                        geometry: geometry_name,
+                    });
+                }
+                if *index >= count {
+                    return Err(DbError::InvalidCommand(format!(
+                        "vertex index {index} is out of range — this entity has {count}"
+                    )));
+                }
+                // A polyline is planar at one shared elevation
+                // (`Geometry::Polyline`'s own doc comment), so a grip drag
+                // that tried to give just one vertex a different Z would be
+                // asking for something the representation cannot express —
+                // caught here rather than silently moving every other
+                // vertex's height along with it, or silently dropping the
+                // new Z on the floor.
+                if let Geometry::Polyline { elevation, .. } = &entity.geom {
+                    if !tol::eq_len(position.z, *elevation) {
+                        return Err(DbError::InvalidCommand(format!(
+                            "this polyline's vertices all share elevation {elevation}; \
+                             {} does not match",
+                            position.z
+                        )));
+                    }
+                }
+                let index = *index;
+                let position = *position;
+                let mut handled = false;
+                tx.modify_entity(*id, |e| {
+                    handled = set_vertex(&mut e.geom, index, position);
+                })?;
+                if !handled {
+                    // Unreachable in practice: `count` and `index` above
+                    // already prove `set_vertex` will succeed for this
+                    // exact (geom, index) pair. Kept as a real error rather
+                    // than an `unreachable!()` so a future edit to either
+                    // function that drifts out of sync with the other fails
+                    // as a normal `Result`, not a panic (unwrap/expect/panic
+                    // are denied in this crate's production code —
+                    // clippy.toml).
+                    return Err(DbError::UnsupportedEdit {
+                        id: *id,
+                        geometry: geometry_name,
+                    });
+                }
+                outcome.modified.push(*id);
+            }
         }
         Ok(outcome)
     }
@@ -430,6 +497,34 @@ fn reflect_xy(p: Point3, a: Point3, b: Point3) -> Point3 {
 /// point, and mirroring a curved (bulged) polyline span needs its bulge sign
 /// and vertex order both reversed together — both are real features, just
 /// not ones a caller should get a plausible-looking wrong answer from today.
+/// Moves vertex `index` of `geom` to `position`, and reports whether it
+/// knew how to — `false` covers both "this kind has no editable vertices"
+/// and "index is out of range for it", which [`Command::apply`] tells apart
+/// itself (via [`Geometry::editable_vertices`]'s length) before ever calling
+/// this, so it always knows which one a `false` here means.
+fn set_vertex(geom: &mut Geometry, index: usize, position: Point3) -> bool {
+    match geom {
+        Geometry::Line { a, b } => match index {
+            0 => *a = position,
+            1 => *b = position,
+            _ => return false,
+        },
+        Geometry::Polyline { polyline, .. } => match polyline.vertices.get_mut(index) {
+            Some(v) => {
+                v.point.x = position.x;
+                v.point.y = position.y;
+            }
+            None => return false,
+        },
+        Geometry::Polyline3d { points, .. } => match points.get_mut(index) {
+            Some(p) => *p = position,
+            None => return false,
+        },
+        _ => return false,
+    }
+    true
+}
+
 fn try_mirror(geom: &mut Geometry, a: Point3, b: Point3) -> bool {
     match geom {
         Geometry::Point(p) => *p = reflect_xy(*p, a, b),
@@ -957,6 +1052,165 @@ mod tests {
                 },
             )
             .expect_err("polyline offset is not implemented yet");
+        assert!(matches!(err, DbError::UnsupportedEdit { .. }));
+    }
+
+    #[test]
+    fn set_vertex_moves_one_line_endpoint_and_leaves_the_other() {
+        let mut d = doc();
+        let id = d
+            .execute(
+                "Draw",
+                &Command::AddLine {
+                    layer: "0".into(),
+                    a: Point3::ORIGIN,
+                    b: Point3::new(1000.0, 0.0, 0.0),
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        d.execute(
+            "Grip",
+            &Command::SetVertex {
+                id,
+                index: 0,
+                position: Point3::new(-500.0, 200.0, 0.0),
+            },
+        )
+        .expect("commits");
+        assert_eq!(
+            d.db.entity(id).expect("exists").geom,
+            Geometry::Line {
+                a: Point3::new(-500.0, 200.0, 0.0),
+                b: Point3::new(1000.0, 0.0, 0.0),
+            }
+        );
+    }
+
+    #[test]
+    fn set_vertex_moves_one_polyline_vertex_and_leaves_its_neighbours() {
+        let mut d = doc();
+        let id = d
+            .execute(
+                "Draw",
+                &Command::AddPolyline {
+                    layer: "0".into(),
+                    points: vec![
+                        Point3::new(0.0, 0.0, 300.0),
+                        Point3::new(1000.0, 0.0, 300.0),
+                        Point3::new(1000.0, 1000.0, 300.0),
+                    ],
+                    closed: false,
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        d.execute(
+            "Grip",
+            &Command::SetVertex {
+                id,
+                index: 1,
+                position: Point3::new(1200.0, 500.0, 300.0),
+            },
+        )
+        .expect("commits");
+        let Some(Geometry::Polyline { polyline, .. }) = d.db.entity(id).map(|e| e.geom.clone())
+        else {
+            panic!("expected a Polyline");
+        };
+        assert!(od_geom2d::tol::eq_len(polyline.vertices[0].point.x, 0.0));
+        assert!(od_geom2d::tol::eq_len(polyline.vertices[1].point.x, 1200.0));
+        assert!(od_geom2d::tol::eq_len(polyline.vertices[1].point.y, 500.0));
+        assert!(od_geom2d::tol::eq_len(polyline.vertices[2].point.x, 1000.0));
+        assert!(od_geom2d::tol::eq_len(polyline.vertices[2].point.y, 1000.0));
+    }
+
+    #[test]
+    fn set_vertex_rejects_an_elevation_that_does_not_match_the_polylines_own() {
+        let mut d = doc();
+        let id = d
+            .execute(
+                "Draw",
+                &Command::AddPolyline {
+                    layer: "0".into(),
+                    points: vec![
+                        Point3::new(0.0, 0.0, 300.0),
+                        Point3::new(1000.0, 0.0, 300.0),
+                    ],
+                    closed: false,
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let err = d
+            .execute(
+                "Grip",
+                &Command::SetVertex {
+                    id,
+                    index: 0,
+                    position: Point3::new(0.0, 0.0, 999.0),
+                },
+            )
+            .expect_err("a polyline cannot have one vertex at a different elevation");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn set_vertex_rejects_an_out_of_range_index() {
+        let mut d = doc();
+        let id = d
+            .execute(
+                "Draw",
+                &Command::AddLine {
+                    layer: "0".into(),
+                    a: Point3::ORIGIN,
+                    b: Point3::new(1000.0, 0.0, 0.0),
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let err = d
+            .execute(
+                "Grip",
+                &Command::SetVertex {
+                    id,
+                    index: 2,
+                    position: Point3::ORIGIN,
+                },
+            )
+            .expect_err("a line only has 2 vertices");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn set_vertex_rejects_a_kind_with_no_editable_vertices() {
+        let mut d = doc();
+        let id = d
+            .execute(
+                "Draw",
+                &Command::AddCircle {
+                    layer: "0".into(),
+                    center: Point3::ORIGIN,
+                    radius: 500.0,
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let err = d
+            .execute(
+                "Grip",
+                &Command::SetVertex {
+                    id,
+                    index: 0,
+                    position: Point3::ORIGIN,
+                },
+            )
+            .expect_err("a circle has no editable vertices");
         assert!(matches!(err, DbError::UnsupportedEdit { .. }));
     }
 

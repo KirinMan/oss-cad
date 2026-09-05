@@ -470,6 +470,36 @@ impl Geometry {
                 .collect(),
         }
     }
+
+    /// The ordered, individually-draggable points of this entity — a line's
+    /// two endpoints, or a polyline's vertices — for an editing canvas to
+    /// offer up as grip handles. Index `i` here is exactly the `index` a
+    /// [`crate::edit::Command::SetVertex`] targeting this entity means.
+    ///
+    /// Deliberately narrower than [`Geometry::snap_points`]: a line's
+    /// midpoint is worth snapping *to*, but it is not itself a vertex to
+    /// drag, and a circle or arc's centre/quadrant points are geometry
+    /// *derived from* the stored radius and centre, not independent state a
+    /// grip could move without also deciding what should happen to the
+    /// radius. Every kind this returns nothing for needs its own kind of
+    /// grip — not this one, dressed up.
+    #[must_use]
+    pub fn editable_vertices(&self) -> Vec<Point3> {
+        match self {
+            Geometry::Line { a, b } => vec![*a, *b],
+            Geometry::Polyline {
+                polyline,
+                elevation,
+                ..
+            } => polyline
+                .vertices
+                .iter()
+                .map(|v| Point3::new(v.point.x, v.point.y, *elevation))
+                .collect(),
+            Geometry::Polyline3d { points, .. } => points.clone(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -492,6 +522,28 @@ mod tests {
         assert!(points.contains(&Point3::ORIGIN));
         assert!(points.contains(&Point3::new(2000.0, 0.0, 0.0)));
         assert!(points.contains(&Point3::new(1000.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn a_lines_editable_vertices_are_exactly_its_two_endpoints_in_order() {
+        let g = Geometry::Line {
+            a: Point3::ORIGIN,
+            b: Point3::new(2000.0, 0.0, 0.0),
+        };
+        assert_eq!(
+            g.editable_vertices(),
+            vec![Point3::ORIGIN, Point3::new(2000.0, 0.0, 0.0)]
+        );
+    }
+
+    #[test]
+    fn a_circle_has_no_editable_vertices() {
+        let g = Geometry::Circle {
+            center: Point3::ORIGIN,
+            radius: 500.0,
+            normal: Vec3::Z,
+        };
+        assert!(g.editable_vertices().is_empty());
     }
 
     #[test]
