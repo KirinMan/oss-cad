@@ -1,0 +1,54 @@
+# Dev environment: `docker compose up --build`.
+#
+# Source is bind-mounted so `bun --watch` / vite's dev server pick up edits
+# without a rebuild — a rebuild is only needed after a dependency change or a
+# Rust change (the `od` binary is compiled once, in the image, not at
+# container start). node_modules is shadowed by a named volume in every
+# service that would otherwise inherit the host's copy: those directories
+# hold platform-specific native binaries (esbuild, Tailwind's oxide engine)
+# built for the container's Linux, and a bind-mounted macOS/Windows host copy
+# would silently break them.
+services:
+  api:
+    build:
+      context: .
+      target: api
+    ports:
+      - '8787:8787'
+    volumes:
+      - .:/app
+      - node_modules_root:/app/node_modules
+      - node_modules_api:/app/apps/api/node_modules
+      - node_modules_shared:/app/packages/shared/node_modules
+    working_dir: /app/apps/api
+    command: ['bun', '--watch', 'src/index.ts']
+
+  front:
+    build:
+      context: .
+      target: front
+    ports:
+      - '5173:5173'
+    environment:
+      # Vite's dev-server proxy target for /api and /health — see
+      # apps/front/vite.config.ts. The service name resolves via Docker's
+      # internal DNS, so this stays correct however the compose project is
+      # named.
+      OD_API_URL: http://api:8787
+    volumes:
+      - .:/app
+      - node_modules_root_front:/app/node_modules
+      - node_modules_front:/app/apps/front/node_modules
+      - node_modules_shared_front:/app/packages/shared/node_modules
+    working_dir: /app/apps/front
+    command: ['bun', 'run', 'dev', '--', '--host', '0.0.0.0']
+    depends_on:
+      - api
+
+volumes:
+  node_modules_root:
+  node_modules_api:
+  node_modules_shared:
+  node_modules_root_front:
+  node_modules_front:
+  node_modules_shared_front:
