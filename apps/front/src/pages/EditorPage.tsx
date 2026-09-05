@@ -7,6 +7,7 @@ import {
   fetchParts,
   fetchSpecs,
   fetchSystems,
+  inspectDrawing,
   placeMep,
   queryNear,
   renderDrawingWithViewBox,
@@ -61,6 +62,7 @@ type Tool =
   | 'polyline'
   | 'text'
   | 'dimension'
+  | 'insert'
   | 'select'
   | 'mep'
   | 'place';
@@ -142,6 +144,26 @@ export function EditorPage() {
   // own DimensionEntity stores exactly that (not a placement point).
   const [dimPoints, setDimPoints] = useState<WorldPoint[]>([]);
 
+  // ── Blocks ──────────────────────────────────────────────────────────────
+  // ブロック化 groups the current 選択 into a new block, named through a
+  // small inline panel rather than a browser prompt() (which blocks the
+  // whole extension — see claude-in-chrome's own dialog warning, and this
+  // app already avoids native dialogs everywhere else). 挿入 needs to know
+  // what block names the open document already defines, which — unlike
+  // every other per-document query so far — comes from inspectDrawing
+  // rather than a dedicated endpoint, since od inspect already reports
+  // exactly this list.
+  const [blockCreating, setBlockCreating] = useState(false);
+  const [blockNameInput, setBlockNameInput] = useState('');
+  const [insertBlockName, setInsertBlockName] = useState('');
+  const blockNamesQuery = useQuery({
+    queryKey: ['blockNames', current?.url ?? null],
+    queryFn: () => inspectDrawing(current!.file),
+    enabled: current !== null,
+  });
+  const effectiveInsertBlock =
+    insertBlockName || (blockNamesQuery.data?.block_names[0] ?? '');
+
   // ── MEP routing ────────────────────────────────────────────────────────
   const [mepPath, setMepPath] = useState<WorldPoint[]>([]);
   const [mepSystem, setMepSystem] = useState('');
@@ -210,6 +232,8 @@ export function EditorPage() {
     setTextPosition(null);
     setTextValue('');
     setDimPoints([]);
+    setBlockCreating(false);
+    setBlockNameInput('');
   }
 
   const open = useMutation({
@@ -325,6 +349,7 @@ export function EditorPage() {
       tool === 'polyline' ||
       tool === 'text' ||
       tool === 'dimension' ||
+      tool === 'insert' ||
       tool === 'mep' ||
       tool === 'place' ||
       (tool === 'select' && (drag?.moved === true || mirrorArmed || gripDrag !== null))
@@ -517,6 +542,19 @@ export function EditorPage() {
       return;
     }
 
+    if (tool === 'insert') {
+      if (!effectiveInsertBlock || edit.isPending) return;
+      edit.mutate({
+        kind: 'insert_block',
+        layer,
+        block_name: effectiveInsertBlock,
+        position: { x: point.x, y: point.y, z: 0 },
+        rotation: 0,
+        scale: { x: 1, y: 1, z: 1 },
+      });
+      return;
+    }
+
     if (tool === 'mep') {
       // Starting a run on a port: carry its height into the elevation field
       // rather than making the user look it up and type it — the whole run
@@ -662,6 +700,28 @@ export function EditorPage() {
     const distance = Number(offsetDistance);
     if (!Number.isFinite(distance) || distance === 0) return;
     edit.mutate({ kind: 'offset_entity', id, distance });
+  }
+
+  function createBlockFromSelection() {
+    const name = blockNameInput.trim();
+    if (!name || selection.length === 0 || edit.isPending) return;
+    // The bounding-box centre of the whole selection — a reasonable base
+    // point without an extra "pick a point" click this tool doesn't have
+    // yet (od-core and commandSchema both accept an arbitrary base_point;
+    // only this UI's choice of which one is narrow).
+    const minX = Math.min(...selection.map((s) => s.bounds_mm[0]));
+    const minY = Math.min(...selection.map((s) => s.bounds_mm[1]));
+    const maxX = Math.max(...selection.map((s) => s.bounds_mm[3]));
+    const maxY = Math.max(...selection.map((s) => s.bounds_mm[4]));
+    edit.mutate({
+      kind: 'create_block',
+      name,
+      layer,
+      base_point: { x: (minX + maxX) / 2, y: (minY + maxY) / 2, z: 0 },
+      ids: selection.map((s) => s.id),
+    });
+    setBlockCreating(false);
+    setBlockNameInput('');
   }
 
   function onGripPointerDown(e: React.PointerEvent, index: number) {
@@ -1042,6 +1102,9 @@ export function EditorPage() {
               >
                 寸法
               </ToolButton>
+              <ToolButton active={tool === 'insert'} onClick={() => switchTool('insert')}>
+                挿入
+              </ToolButton>
               <ToolButton active={tool === 'select'} onClick={() => switchTool('select')}>
                 選択
               </ToolButton>
@@ -1132,6 +1195,14 @@ export function EditorPage() {
               </span>
             )}
 
+            {tool === 'insert' && (
+              <span>
+                {effectiveInsertBlock
+                  ? 'クリックして挿入'
+                  : 'このドキュメントにブロック定義がありません'}
+              </span>
+            )}
+
             {tool === 'select' && mirrorArmed && (
               <>
                 <span>
@@ -1210,6 +1281,47 @@ export function EditorPage() {
                       オフセット
                     </button>
                   </>
+                )}
+                {blockCreating ? (
+                  <>
+                    <input
+                      type="text"
+                      value={blockNameInput}
+                      onChange={(e) => setBlockNameInput(e.target.value)}
+                      placeholder="ブロック名"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') createBlockFromSelection();
+                      }}
+                      className="w-32 rounded border border-rule bg-paper px-2 py-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={createBlockFromSelection}
+                      disabled={!blockNameInput.trim() || edit.isPending}
+                      className="rounded border border-accent bg-accent/10 px-2 py-1 text-ink disabled:opacity-40"
+                    >
+                      作成
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBlockCreating(false);
+                        setBlockNameInput('');
+                      }}
+                      className="rounded border border-rule px-2 py-1 text-ink"
+                    >
+                      キャンセル
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setBlockCreating(true)}
+                    className="rounded border border-rule px-2 py-1 text-ink"
+                  >
+                    ブロック化
+                  </button>
                 )}
                 <button
                   type="button"
@@ -1317,6 +1429,25 @@ export function EditorPage() {
               >
                 配置
               </button>
+            </div>
+          )}
+
+          {tool === 'insert' && (blockNamesQuery.data?.block_names.length ?? 0) > 0 && (
+            <div className="flex flex-wrap items-end gap-3 rounded border border-rule bg-paper-raised px-3 py-2 text-xs">
+              <label className="flex flex-col gap-1">
+                ブロック
+                <select
+                  value={effectiveInsertBlock}
+                  onChange={(e) => setInsertBlockName(e.target.value)}
+                  className="rounded border border-rule bg-paper px-2 py-1"
+                >
+                  {(blockNamesQuery.data?.block_names ?? []).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           )}
 
