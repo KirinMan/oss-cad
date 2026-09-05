@@ -905,6 +905,13 @@ pub fn query(db: &Database, found: &[od_core::ObjectId], indexed: usize, json: b
         /// click to, distinct from `bounds_mm` because a box corner is
         /// usually not a point the entity actually passes through.
         snap_points_mm: Vec<[f64; 3]>,
+        /// Ordered, individually-draggable points — grip handles. Deliberately
+        /// not the same list as `snap_points_mm` (which mixes in midpoints
+        /// and centres that are not vertices at all): index `i` here is
+        /// exactly the `index` a `set_vertex` command targeting this entity
+        /// means, so mixing in a non-vertex point would silently mislabel
+        /// every grip after it.
+        vertices_mm: Vec<[f64; 3]>,
     }
 
     let hits: Vec<Hit> = found
@@ -928,6 +935,12 @@ pub fn query(db: &Database, found: &[od_core::ObjectId], indexed: usize, json: b
                 snap_points_mm: entity
                     .geom
                     .snap_points()
+                    .into_iter()
+                    .map(|p| [p.x, p.y, p.z])
+                    .collect(),
+                vertices_mm: entity
+                    .geom
+                    .editable_vertices()
                     .into_iter()
                     .map(|p| [p.x, p.y, p.z])
                     .collect(),
