@@ -2,7 +2,9 @@
 
 use crate::color::{aci_to_rgb, hex, luminance};
 use crate::{Background, SvgOptions};
-use od_core::{Color, Database, Entity, Geometry, GraphicStyle, LineWeight, Point3, ResolvedStyle};
+use od_core::{
+    Color, Database, Entity, Geometry, GraphicStyle, LineWeight, ObjectId, Point3, ResolvedStyle,
+};
 use od_geom3d::Aabb3;
 use od_index::DrawingIndex;
 use std::fmt::Write as _;
@@ -64,7 +66,7 @@ pub(crate) fn render(db: &Database, options: &SvgOptions) -> (String, ViewBox) {
             continue;
         }
         let style = resolve(db, entity, None);
-        paint(&mut out, &ctx, entity, &style, 0);
+        paint(&mut out, &ctx, id, entity, &style, 0);
         painted += 1;
     }
 
@@ -173,7 +175,14 @@ fn resolve(db: &Database, entity: &Entity, block: Option<&ResolvedStyle>) -> Res
     entity.style.resolve(&layer_style, block)
 }
 
-fn paint(out: &mut String, ctx: &Ctx<'_>, entity: &Entity, style: &ResolvedStyle, depth: usize) {
+fn paint(
+    out: &mut String,
+    ctx: &Ctx<'_>,
+    id: ObjectId,
+    entity: &Entity,
+    style: &ResolvedStyle,
+    depth: usize,
+) {
     let attrs = attributes(ctx, style, &entity.style);
 
     match &entity.geom {
@@ -330,8 +339,76 @@ fn paint(out: &mut String, ctx: &Ctx<'_>, entity: &Entity, style: &ResolvedStyle
                     }
                     // Inside a block, ByBlock resolves against the reference.
                     let inner = resolve(ctx.db, member, Some(style));
-                    paint(out, ctx, member, &inner, depth + 1);
+                    paint(out, ctx, member_id, member, &inner, depth + 1);
                 }
+            }
+            out.push_str("</g>\n");
+        }
+
+        Geometry::Viewport(vp) => {
+            // The paper-space boundary, in the viewport entity's own style —
+            // drawn even if the nested content below is skipped, so a
+            // recursion-guarded or empty viewport still shows where it is.
+            let corners = vp.corners();
+            let mut d = format!("M {} {}", n(corners[0].x), n(corners[0].y));
+            for c in &corners[1..] {
+                let _ = write!(d, " L {} {}", n(c.x), n(c.y));
+            }
+            d.push_str(" Z");
+            let _ = writeln!(out, r#"<path d="{d}" {attrs}/>"#);
+
+            if depth >= MAX_BLOCK_DEPTH {
+                return;
+            }
+            let window = vp.model_window();
+            if window.is_empty() {
+                return;
+            }
+            // Z-unbounded, like `od query --window`'s own parsing: a
+            // viewport frames an XY rectangle of model space, not a slab, so
+            // an entity at any elevation within it should still show.
+            let query_window = Aabb3::new(
+                Point3::new(window.min.x, window.min.y, f64::NEG_INFINITY),
+                Point3::new(window.max.x, window.max.y, f64::INFINITY),
+            );
+
+            // A real render of the model-space window this viewport frames,
+            // not just its outline: query the same spatial index the
+            // top-level render() uses, clipped to the paper-space rectangle
+            // and mapped into it by translate/scale/translate, the same
+            // three-step shape BlockRef above uses for its own nesting.
+            let model_space = ctx.db.model_space();
+            let index = DrawingIndex::build(ctx.db, model_space);
+            let visible = index.query(ctx.db, query_window);
+
+            let (hw, hh) = (vp.width / 2.0, vp.height / 2.0);
+            let clip_id = format!("vp-clip-{}-{}", id.actor.0, id.seq);
+            let _ = writeln!(
+                out,
+                r#"<clipPath id="{clip_id}"><rect x="{}" y="{}" width="{}" height="{}"/></clipPath>"#,
+                n(vp.position.x - hw),
+                n(vp.position.y - hh),
+                n(vp.width),
+                n(vp.height)
+            );
+            let _ = writeln!(
+                out,
+                r#"<g clip-path="url(#{clip_id})" transform="translate({} {}) scale({}) translate({} {})">"#,
+                n(vp.position.x),
+                n(vp.position.y),
+                n(vp.scale),
+                n(-vp.target.x),
+                n(-vp.target.y)
+            );
+            for member_id in visible {
+                let Some(member) = ctx.db.entity(member_id) else {
+                    continue;
+                };
+                if !is_visible(ctx.db, member, ctx.options) {
+                    continue;
+                }
+                let inner = resolve(ctx.db, member, None);
+                paint(out, ctx, member_id, member, &inner, depth + 1);
             }
             out.push_str("</g>\n");
         }
@@ -472,7 +549,7 @@ fn render_dimension(
     // Kept within ±90° of horizontal — the same "never upside down" rule a
     // human drafter applies, rather than a literal reading of whatever
     // direction point_a happened to be clicked before point_b.
-    if angle > std::f64::consts::FRAC_PI_2 || angle < -std::f64::consts::FRAC_PI_2 {
+    if !(-std::f64::consts::FRAC_PI_2..=std::f64::consts::FRAC_PI_2).contains(&angle) {
         angle += std::f64::consts::PI;
     }
     let text = d
