@@ -125,6 +125,23 @@ export const commandSchema = z.discriminatedUnion('kind', [
     kind: z.literal('delete_entities'),
     ids: z.array(z.string()),
   }),
+  z.object({
+    kind: z.literal('copy_entities'),
+    ids: z.array(z.string()),
+    delta: point3Schema,
+  }),
+  z.object({
+    kind: z.literal('mirror_entities'),
+    ids: z.array(z.string()),
+    a: point3Schema,
+    b: point3Schema,
+    keep_original: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal('offset_entity'),
+    id: z.string(),
+    distance: z.number(),
+  }),
 ]);
 export type Command = z.infer<typeof commandSchema>;
 
