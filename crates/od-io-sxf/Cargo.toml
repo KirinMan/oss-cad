@@ -1,0 +1,16 @@
+[package]
+name = "od-io-sxf"
+description = "SXF (SFC) reader and writer for OpenDraft — Japan's public-works CAD exchange format (SCADEC/OCF). SFC only; SXF(P21) is not yet implemented (see crate docs)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+od-core = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
