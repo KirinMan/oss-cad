@@ -267,6 +267,42 @@ describe.if(hasEngine)('drawings', () => {
     expect(await dark.text()).toContain('#141d26');
   });
 
+  test('rendering a paper-space layout shows its viewports instead of model space', async () => {
+    // DXF cannot carry a Viewport (od-io-dxf skips it, reported as a loss —
+    // the same reason MEP round-trips through `.odc` in these tests), so
+    // this one has to start from `.odc` or the edit's own DXF re-save would
+    // silently drop the very entity the test means to render.
+    const form = await uploadOdc();
+    form.set(
+      'command',
+      JSON.stringify({
+        kind: 'add_viewport',
+        layout: '*Paper_Space',
+        position: { x: 100, y: 100, z: 0 },
+        width: 200,
+        height: 150,
+        target: { x: 2500, y: 1000, z: 0 },
+        scale: 0.05,
+      }),
+    );
+    const edited = await app.request('/api/drawings/edit', {
+      method: 'POST',
+      body: form,
+    });
+    const body = (await edited.json()) as { document: string };
+
+    const layout = new FormData();
+    layout.set('file', new File([Buffer.from(body.document, 'base64')], 'a.odc'));
+    const res = await app.request(
+      '/api/drawings/render?layout=' + encodeURIComponent('*Paper_Space'),
+      { method: 'POST', body: layout },
+    );
+    expect(res.status).toBe(200);
+    const svg = await res.text();
+    // The viewport's own paper-space boundary, not model space's own line.
+    expect(svg).toContain('clipPath');
+  });
+
   test('an unknown target format is refused', async () => {
     const res = await app.request('/api/drawings/convert?to=rvt', {
       method: 'POST',

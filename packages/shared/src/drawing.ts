@@ -185,6 +185,23 @@ export const commandSchema = z.discriminatedUnion('kind', [
     rotation: z.number(),
     scale: point3Schema,
   }),
+  z.object({
+    kind: z.literal('create_layout'),
+    name: z.string(),
+  }),
+  z.object({
+    kind: z.literal('add_viewport'),
+    /** An existing paper-space layout's name, e.g. `*Paper_Space`. */
+    layout: z.string(),
+    /** Paper-space centre of the viewport rectangle. */
+    position: point3Schema,
+    width: z.number().positive(),
+    height: z.number().positive(),
+    /** Model-space point this viewport is centred on. */
+    target: point3Schema,
+    /** Paper units per model unit. */
+    scale: z.number().positive(),
+  }),
 ]);
 export type Command = z.infer<typeof commandSchema>;
 
