@@ -291,6 +291,8 @@ fn paint(out: &mut String, ctx: &Ctx<'_>, entity: &Entity, style: &ResolvedStyle
             write_text(out, ctx, &t.value, t.position, t.height, t.rotation, style);
         }
 
+        Geometry::Dimension(d) => render_dimension(out, ctx, d, style, &attrs),
+
         Geometry::Hatch(h) => {
             // Boundaries only, matching what the DXF writer does until patterns
             // are modelled.
@@ -360,6 +362,166 @@ fn paint(out: &mut String, ctx: &Ctx<'_>, entity: &Entity, style: &ResolvedStyle
             }
         }
     }
+}
+
+/// The `Standard` `DimStyle`'s own defaults (`Database::new`) — used only if
+/// `d.style` somehow does not resolve, which `AddText`/`AddDimension` never
+/// produce; a rendering fallback should never be worse than "looks like the
+/// default style", not a missing dimension.
+const FALLBACK_TEXT_HEIGHT_MM: f64 = 2.5;
+const FALLBACK_ARROW_SIZE_MM: f64 = 2.5;
+const FALLBACK_EXTENSION_OFFSET_MM: f64 = 0.625;
+const FALLBACK_EXTENSION_BEYOND_MM: f64 = 1.25;
+
+fn render_dimension(
+    out: &mut String,
+    ctx: &Ctx<'_>,
+    d: &od_core::DimensionEntity,
+    style: &ResolvedStyle,
+    attrs: &str,
+) {
+    let dim_style = ctx.db.tables.dim_styles.get(d.style);
+    let scale = dim_style.map_or(1.0, |s| s.scale);
+    let text_height = dim_style.map_or(FALLBACK_TEXT_HEIGHT_MM, |s| s.text_height) * scale;
+    let arrow_size = dim_style.map_or(FALLBACK_ARROW_SIZE_MM, |s| s.arrow_size) * scale;
+    let extension_offset =
+        dim_style.map_or(FALLBACK_EXTENSION_OFFSET_MM, |s| s.extension_offset) * scale;
+    let extension_beyond =
+        dim_style.map_or(FALLBACK_EXTENSION_BEYOND_MM, |s| s.extension_beyond) * scale;
+
+    let (line_a, line_b) = d.dimension_line();
+
+    // The direction each extension line runs — perpendicular to the measured
+    // segment, i.e. exactly the direction from a measured point to its own
+    // end of the dimension line. Degenerate (zero-length or zero-offset)
+    // dimensions draw no extension lines rather than dividing by zero.
+    let ext_dir = |from: Point3, to: Point3| -> Option<(f64, f64)> {
+        let (dx, dy) = (to.x - from.x, to.y - from.y);
+        let len = dx.hypot(dy);
+        (len > od_core::tol::POINT_EPS).then_some((dx / len, dy / len))
+    };
+
+    if let Some((ux, uy)) = ext_dir(d.point_a, line_a) {
+        let start = (
+            d.point_a.x + ux * extension_offset,
+            d.point_a.y + uy * extension_offset,
+        );
+        let end = (
+            line_a.x + ux * extension_beyond,
+            line_a.y + uy * extension_beyond,
+        );
+        let _ = writeln!(
+            out,
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" {attrs}/>"#,
+            n(start.0),
+            n(start.1),
+            n(end.0),
+            n(end.1)
+        );
+    }
+    if let Some((ux, uy)) = ext_dir(d.point_b, line_b) {
+        let start = (
+            d.point_b.x + ux * extension_offset,
+            d.point_b.y + uy * extension_offset,
+        );
+        let end = (
+            line_b.x + ux * extension_beyond,
+            line_b.y + uy * extension_beyond,
+        );
+        let _ = writeln!(
+            out,
+            r#"<line x1="{}" y1="{}" x2="{}" y2="{}" {attrs}/>"#,
+            n(start.0),
+            n(start.1),
+            n(end.0),
+            n(end.1)
+        );
+    }
+
+    let _ = writeln!(
+        out,
+        r#"<line x1="{}" y1="{}" x2="{}" y2="{}" {attrs}/>"#,
+        n(line_a.x),
+        n(line_a.y),
+        n(line_b.x),
+        n(line_b.y)
+    );
+
+    // Arrowheads point inward, toward each other along the dimension line —
+    // the standard drafting convention, and the opposite of the outward
+    // extension lines above.
+    let fill = hex(paint_colour(ctx, style));
+    if let Some((ux, uy)) = ext_dir(line_b, line_a) {
+        write_arrowhead(out, line_a, (ux, uy), arrow_size, &fill);
+        write_arrowhead(out, line_b, (-ux, -uy), arrow_size, &fill);
+    }
+
+    let mid = Point3::new(
+        (line_a.x + line_b.x) / 2.0,
+        (line_a.y + line_b.y) / 2.0,
+        line_a.z,
+    );
+    // Nudged off the dimension line by the text height itself, in whichever
+    // direction the extension lines already run, so the label sits above
+    // the line rather than straddling it.
+    let (label_x, label_y) = match ext_dir(d.point_a, line_a) {
+        Some((ux, uy)) => (mid.x + ux * text_height, mid.y + uy * text_height),
+        None => (mid.x, mid.y + text_height),
+    };
+    let mut angle = (line_b.y - line_a.y).atan2(line_b.x - line_a.x);
+    // Kept within ±90° of horizontal — the same "never upside down" rule a
+    // human drafter applies, rather than a literal reading of whatever
+    // direction point_a happened to be clicked before point_b.
+    if angle > std::f64::consts::FRAC_PI_2 || angle < -std::f64::consts::FRAC_PI_2 {
+        angle += std::f64::consts::PI;
+    }
+    let text = d
+        .text_override
+        .clone()
+        .unwrap_or_else(|| format_dimension_length(d.measured_length(), dim_style));
+    write_text(
+        out,
+        ctx,
+        &text,
+        Point3::new(label_x, label_y, mid.z),
+        text_height,
+        angle,
+        style,
+    );
+}
+
+fn write_arrowhead(out: &mut String, tip: Point3, direction: (f64, f64), size: f64, fill: &str) {
+    // A narrow triangle, base perpendicular to `direction`, pointing along it.
+    let (dx, dy) = direction;
+    let (px, py) = (-dy, dx);
+    let half_width = size * 0.15;
+    let base_x = tip.x - dx * size;
+    let base_y = tip.y - dy * size;
+    let _ = writeln!(
+        out,
+        r#"<polygon points="{},{} {},{} {},{}" fill="{fill}" stroke="none"/>"#,
+        n(tip.x),
+        n(tip.y),
+        n(base_x + px * half_width),
+        n(base_y + py * half_width),
+        n(base_x - px * half_width),
+        n(base_y - py * half_width)
+    );
+}
+
+/// Formats a measured length per `style`'s decimal places, trimming trailing
+/// zeros (and a bare trailing `.`) when the style asks for that — the JIS
+/// convention `DimStyle`'s own doc comment calls out, and the reason
+/// `Database::new`'s default style sets it.
+fn format_dimension_length(value: f64, style: Option<&od_core::DimStyle>) -> String {
+    let decimals = style.map_or(0, |s| usize::from(s.decimal_places));
+    let suppress = style.is_none_or(|s| s.suppress_trailing_zeros);
+    let formatted = format!("{value:.decimals$}");
+    if !suppress || !formatted.contains('.') {
+        return formatted;
+    }
+    let trimmed = formatted.trim_end_matches('0');
+    trimmed.strip_suffix('.').unwrap_or(trimmed).to_owned()
 }
 
 fn write_text(
