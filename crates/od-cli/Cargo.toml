@@ -20,6 +20,7 @@ od-geom3d = { workspace = true }
 od-index = { workspace = true }
 od-io-odc = { workspace = true }
 od-io-svg = { workspace = true }
+od-io-sxf = { workspace = true }
 od-parts = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -38,14 +38,17 @@ import { od, odAvailable, odBinary, OdError, OdMissingError } from './od.ts';
 const MAX_UPLOAD_BYTES = Number(process.env.OD_MAX_UPLOAD ?? 64 * 1024 * 1024);
 
 /** Formats the engine can read and write. Kept in step with crates/od-cli/src/load.rs. */
-const READABLE = ['dxf', 'odc'] as const;
-const WRITABLE: string[] = ['odc', 'dxf', 'json'];
+const READABLE = ['dxf', 'odc', 'sfc'] as const;
+const WRITABLE: string[] = ['odc', 'dxf', 'sfc', 'json'];
 
 const CONTENT_TYPES: Record<string, string> = {
   // The container is a ZIP, and saying so lets a browser and a proxy handle it
   // sensibly even where the vendor type means nothing to them.
   odc: 'application/vnd.opendraft.document+zip',
   dxf: 'application/dxf',
+  // SXF(SFC) has no registered MIME type; text/plain is the honest fallback
+  // for a plain-text format nothing else claims.
+  sfc: 'text/plain',
   json: 'application/json',
 };
 
