@@ -148,6 +148,15 @@ export const commandSchema = z.discriminatedUnion('kind', [
     index: z.number().int().nonnegative(),
     position: point3Schema,
   }),
+  z.object({
+    kind: z.literal('add_text'),
+    layer: z.string(),
+    position: point3Schema,
+    text: z.string(),
+    height: z.number().positive(),
+    /** Radians, counter-clockwise. */
+    rotation: z.number(),
+  }),
 ]);
 export type Command = z.infer<typeof commandSchema>;
 
