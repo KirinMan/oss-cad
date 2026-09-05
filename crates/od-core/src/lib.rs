@@ -49,7 +49,7 @@ pub use database::{
 pub use edit::{Command, CommandOutcome};
 pub use entity::{
     AttributeValue, BlockRef, DimensionEntity, Entity, Geometry, HAlign, Hatch, HatchPattern,
-    MTextEntity, ProxyGraphic, TextEntity, TextFlow, VAlign,
+    MTextEntity, ProxyGraphic, TextEntity, TextFlow, VAlign, ViewportEntity,
 };
 pub use error::{DbError, Result};
 pub use id::{ActorId, IdGenerator, ObjectId};

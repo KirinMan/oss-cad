@@ -11,7 +11,7 @@
 //! since every caller already goes through [`Document::execute`] rather than
 //! constructing a variant's fields directly into a transaction.
 
-use crate::entity::{BlockRef, DimensionEntity, Entity, Geometry, TextEntity};
+use crate::entity::{BlockRef, DimensionEntity, Entity, Geometry, TextEntity, ViewportEntity};
 use crate::error::DbError;
 use crate::id::ObjectId;
 use crate::transaction::Transaction;
@@ -140,6 +140,26 @@ pub enum Command {
         position: Point3,
         rotation: f64,
         scale: Vec3,
+    },
+    /// Creates a new paper-space layout named `name`. Unlike
+    /// [`Command::CreateBlock`]'s `ensure`-style reuse of an existing name, a
+    /// duplicate name here is an error — a layout is a top-level document
+    /// object a user names deliberately (like a sheet), not an incidental
+    /// grouping that is fine to fall back to when the name happens to
+    /// collide.
+    CreateLayout { name: String },
+    /// Places a viewport on the paper-space layout `layout`, at `position`
+    /// with paper-space size `width` x `height`, framing the model-space
+    /// point `target` at `scale` paper units per model unit — see
+    /// [`crate::entity::ViewportEntity`] for the exact geometry this
+    /// produces.
+    AddViewport {
+        layout: String,
+        position: Point3,
+        width: f64,
+        height: f64,
+        target: Point3,
+        scale: f64,
     },
 }
 
@@ -615,6 +635,65 @@ impl Command {
                 ))?;
                 outcome.created.push(id);
             }
+            Command::CreateLayout { name } => {
+                if tx.db().tables.blocks.id_of(name).is_some() {
+                    return Err(DbError::InvalidCommand(format!(
+                        "a layout named `{name}` already exists"
+                    )));
+                }
+                let id = tx.ensure_paper_space(name);
+                outcome.created.push(id);
+            }
+            Command::AddViewport {
+                layout,
+                position,
+                width,
+                height,
+                target,
+                scale,
+            } => {
+                if *width <= 0.0 || *height <= 0.0 {
+                    return Err(DbError::InvalidCommand(
+                        "a viewport needs a positive width and height".into(),
+                    ));
+                }
+                if *scale <= 0.0 {
+                    return Err(DbError::InvalidCommand(
+                        "a viewport's scale must be positive".into(),
+                    ));
+                }
+                // Never auto-created, matching InsertBlock's treatment of
+                // `block_name`: a layout that does not exist has nowhere to
+                // place this viewport, so it errors loudly instead of
+                // inventing one under a name the caller did not choose.
+                let layout_id = tx.db().tables.blocks.id_of(layout).ok_or_else(|| {
+                    DbError::InvalidCommand(format!("no layout named `{layout}`"))
+                })?;
+                let is_paper_space = tx
+                    .db()
+                    .tables
+                    .blocks
+                    .get(layout_id)
+                    .is_some_and(|b| b.kind == crate::tables::BlockKind::PaperSpace);
+                if !is_paper_space {
+                    return Err(DbError::InvalidCommand(format!(
+                        "`{layout}` is not a paper-space layout"
+                    )));
+                }
+                let layer_id = tx.ensure_layer("0");
+                let id = tx.add_entity(Entity::new(
+                    layer_id,
+                    layout_id,
+                    Geometry::Viewport(Box::new(ViewportEntity {
+                        position: *position,
+                        width: *width,
+                        height: *height,
+                        target: *target,
+                        scale: *scale,
+                    })),
+                ))?;
+                outcome.created.push(id);
+            }
         }
         Ok(outcome)
     }
@@ -648,6 +727,10 @@ fn try_translate(geom: &mut Geometry, delta: Vec3) -> bool {
         Geometry::BlockRef(block_ref) => block_ref.position = block_ref.position + delta,
         Geometry::Text(t) => t.position = t.position + delta,
         Geometry::MText(t) => t.position = t.position + delta,
+        // Only the paper-space placement moves; `target` is a model-space
+        // reference and must stay put, or the viewport would silently frame
+        // a different part of the model than before.
+        Geometry::Viewport(vp) => vp.position = vp.position + delta,
         // `offset` is a relative perpendicular distance, so it needs no
         // change — only the two measured points move.
         Geometry::Dimension(d) => {
@@ -1703,6 +1786,139 @@ mod tests {
                 },
             )
             .expect_err("cannot insert a block that was never defined");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn create_layout_adds_a_new_paper_space_block() {
+        let mut d = doc();
+        let outcome = d
+            .execute(
+                "Layout",
+                &Command::CreateLayout {
+                    name: "Sheet 1".into(),
+                },
+            )
+            .expect("commits");
+        let id = outcome.created[0];
+        let block = d.db.tables.blocks.get(id).expect("exists");
+        assert_eq!(block.name, "Sheet 1");
+        assert_eq!(block.kind, crate::tables::BlockKind::PaperSpace);
+    }
+
+    #[test]
+    fn create_layout_rejects_a_duplicate_name() {
+        let mut d = doc();
+        d.execute(
+            "Layout",
+            &Command::CreateLayout {
+                name: "Sheet 1".into(),
+            },
+        )
+        .expect("commits");
+        let err = d
+            .execute(
+                "Layout",
+                &Command::CreateLayout {
+                    name: "Sheet 1".into(),
+                },
+            )
+            .expect_err("the name is already taken");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn add_viewport_places_one_on_an_existing_layout() {
+        let mut d = doc();
+        let outcome = d
+            .execute(
+                "Viewport",
+                &Command::AddViewport {
+                    layout: crate::database::PAPER_SPACE.into(),
+                    position: Point3::new(100.0, 100.0, 0.0),
+                    width: 200.0,
+                    height: 150.0,
+                    target: Point3::new(5000.0, 5000.0, 0.0),
+                    scale: 0.5,
+                },
+            )
+            .expect("commits");
+        let id = outcome.created[0];
+        let Geometry::Viewport(vp) = &d.db.entity(id).expect("exists").geom else {
+            panic!("expected Viewport");
+        };
+        assert_eq!(vp.position, Point3::new(100.0, 100.0, 0.0));
+        assert_eq!(vp.target, Point3::new(5000.0, 5000.0, 0.0));
+        assert_eq!(vp.scale, 0.5);
+    }
+
+    #[test]
+    fn add_viewport_rejects_a_non_positive_size_or_scale() {
+        let mut d = doc();
+        let bad_width = Command::AddViewport {
+            layout: crate::database::PAPER_SPACE.into(),
+            position: Point3::ORIGIN,
+            width: 0.0,
+            height: 150.0,
+            target: Point3::ORIGIN,
+            scale: 1.0,
+        };
+        assert!(matches!(
+            d.execute("Viewport", &bad_width)
+                .expect_err("width must be positive"),
+            DbError::InvalidCommand(_)
+        ));
+
+        let bad_scale = Command::AddViewport {
+            layout: crate::database::PAPER_SPACE.into(),
+            position: Point3::ORIGIN,
+            width: 200.0,
+            height: 150.0,
+            target: Point3::ORIGIN,
+            scale: -1.0,
+        };
+        assert!(matches!(
+            d.execute("Viewport", &bad_scale)
+                .expect_err("scale must be positive"),
+            DbError::InvalidCommand(_)
+        ));
+    }
+
+    #[test]
+    fn add_viewport_rejects_an_unknown_layout() {
+        let mut d = doc();
+        let err = d
+            .execute(
+                "Viewport",
+                &Command::AddViewport {
+                    layout: "NO-SUCH-LAYOUT".into(),
+                    position: Point3::ORIGIN,
+                    width: 200.0,
+                    height: 150.0,
+                    target: Point3::ORIGIN,
+                    scale: 1.0,
+                },
+            )
+            .expect_err("cannot place a viewport on a layout that was never defined");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn add_viewport_rejects_model_space_as_the_layout() {
+        let mut d = doc();
+        let err = d
+            .execute(
+                "Viewport",
+                &Command::AddViewport {
+                    layout: crate::database::MODEL_SPACE.into(),
+                    position: Point3::ORIGIN,
+                    width: 200.0,
+                    height: 150.0,
+                    target: Point3::ORIGIN,
+                    scale: 1.0,
+                },
+            )
+            .expect_err("model space is not a paper-space layout");
         assert!(matches!(err, DbError::InvalidCommand(_)));
     }
 
