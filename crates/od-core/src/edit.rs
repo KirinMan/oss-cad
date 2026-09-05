@@ -15,6 +15,7 @@ use crate::entity::{Entity, Geometry};
 use crate::error::DbError;
 use crate::id::ObjectId;
 use crate::transaction::Transaction;
+use od_geom2d::{Point2, Polyline2, tol};
 use od_geom3d::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +25,30 @@ pub enum Command {
     /// Draws a straight line on `layer` (created if it does not exist yet),
     /// in model space.
     AddLine { layer: String, a: Point3, b: Point3 },
+    /// Draws a circle on `layer`, in the XY plane.
+    AddCircle {
+        layer: String,
+        center: Point3,
+        radius: f64,
+    },
+    /// Draws an arc on `layer`, in the XY plane. `start_angle` and `sweep`
+    /// are radians, matching [`Geometry::Arc`]'s own convention.
+    AddArc {
+        layer: String,
+        center: Point3,
+        radius: f64,
+        start_angle: f64,
+        sweep: f64,
+    },
+    /// Draws a straight-segment polyline on `layer`. `points` must all share
+    /// one Z — [`Geometry::Polyline`] is planar, at a fixed elevation, the
+    /// same constraint `od-domain-mep::route::draw_route` enforces on a
+    /// routed centreline.
+    AddPolyline {
+        layer: String,
+        points: Vec<Point3>,
+        closed: bool,
+    },
     /// Translates every named entity by the same offset.
     MoveEntities { ids: Vec<ObjectId>, delta: Vec3 },
     /// Turns every named entity in place by the same angle, about its own
@@ -57,6 +82,77 @@ impl Command {
                     layer_id,
                     space,
                     Geometry::Line { a: *a, b: *b },
+                ))?;
+                outcome.created.push(id);
+            }
+            Command::AddCircle {
+                layer,
+                center,
+                radius,
+            } => {
+                let layer_id = tx.ensure_layer(layer);
+                let space = tx.db().model_space();
+                let id = tx.add_entity(Entity::new(
+                    layer_id,
+                    space,
+                    Geometry::Circle {
+                        center: *center,
+                        radius: *radius,
+                        normal: Vec3::Z,
+                    },
+                ))?;
+                outcome.created.push(id);
+            }
+            Command::AddArc {
+                layer,
+                center,
+                radius,
+                start_angle,
+                sweep,
+            } => {
+                let layer_id = tx.ensure_layer(layer);
+                let space = tx.db().model_space();
+                let id = tx.add_entity(Entity::new(
+                    layer_id,
+                    space,
+                    Geometry::Arc {
+                        center: *center,
+                        radius: *radius,
+                        start_angle: *start_angle,
+                        sweep: *sweep,
+                        normal: Vec3::Z,
+                    },
+                ))?;
+                outcome.created.push(id);
+            }
+            Command::AddPolyline {
+                layer,
+                points,
+                closed,
+            } => {
+                if points.len() < 2 {
+                    return Err(DbError::InvalidCommand(
+                        "a polyline needs at least two points".into(),
+                    ));
+                }
+                let elevation = points[0].z;
+                if points.iter().any(|p| !tol::eq_len(p.z, elevation)) {
+                    return Err(DbError::InvalidCommand(
+                        "a polyline's points must all share one elevation".into(),
+                    ));
+                }
+                let vertices = points.iter().map(|p| Point2::new(p.x, p.y));
+                let layer_id = tx.ensure_layer(layer);
+                let space = tx.db().model_space();
+                let id = tx.add_entity(Entity::new(
+                    layer_id,
+                    space,
+                    Geometry::Polyline {
+                        polyline: Polyline2::from_points(vertices, *closed),
+                        elevation,
+                        normal: Vec3::Z,
+                        width: 0.0,
+                    },
                 ))?;
                 outcome.created.push(id);
             }
@@ -214,6 +310,121 @@ mod tests {
                 .name,
             "A-Wall"
         );
+    }
+
+    #[test]
+    fn add_circle_draws_in_the_xy_plane() {
+        let mut d = doc();
+        let outcome = d
+            .execute(
+                "Draw",
+                &Command::AddCircle {
+                    layer: "0".into(),
+                    center: Point3::new(1000.0, 2000.0, 0.0),
+                    radius: 500.0,
+                },
+            )
+            .expect("commits");
+        let entity = d.db.entity(outcome.created[0]).expect("exists");
+        assert_eq!(
+            entity.geom,
+            Geometry::Circle {
+                center: Point3::new(1000.0, 2000.0, 0.0),
+                radius: 500.0,
+                normal: Vec3::Z,
+            }
+        );
+    }
+
+    #[test]
+    fn add_arc_draws_in_the_xy_plane() {
+        let mut d = doc();
+        let outcome = d
+            .execute(
+                "Draw",
+                &Command::AddArc {
+                    layer: "0".into(),
+                    center: Point3::ORIGIN,
+                    radius: 500.0,
+                    start_angle: 0.0,
+                    sweep: std::f64::consts::FRAC_PI_2,
+                },
+            )
+            .expect("commits");
+        let entity = d.db.entity(outcome.created[0]).expect("exists");
+        assert_eq!(
+            entity.geom,
+            Geometry::Arc {
+                center: Point3::ORIGIN,
+                radius: 500.0,
+                start_angle: 0.0,
+                sweep: std::f64::consts::FRAC_PI_2,
+                normal: Vec3::Z,
+            }
+        );
+    }
+
+    #[test]
+    fn add_polyline_draws_a_straight_segment_chain() {
+        let mut d = doc();
+        let outcome = d
+            .execute(
+                "Draw",
+                &Command::AddPolyline {
+                    layer: "0".into(),
+                    points: vec![
+                        Point3::new(0.0, 0.0, 300.0),
+                        Point3::new(1000.0, 0.0, 300.0),
+                        Point3::new(1000.0, 1000.0, 300.0),
+                    ],
+                    closed: false,
+                },
+            )
+            .expect("commits");
+        let entity = d.db.entity(outcome.created[0]).expect("exists");
+        let Geometry::Polyline {
+            polyline,
+            elevation,
+            ..
+        } = &entity.geom
+        else {
+            panic!("expected a Polyline, got {:?}", entity.geom);
+        };
+        assert!(od_geom2d::tol::eq_len(*elevation, 300.0));
+        assert_eq!(polyline.vertices.len(), 3);
+        assert!(!polyline.closed);
+    }
+
+    #[test]
+    fn add_polyline_rejects_a_non_planar_path() {
+        let mut d = doc();
+        let err = d
+            .execute(
+                "Draw",
+                &Command::AddPolyline {
+                    layer: "0".into(),
+                    points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 500.0)],
+                    closed: false,
+                },
+            )
+            .expect_err("differing Z must be rejected");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn add_polyline_rejects_a_single_point() {
+        let mut d = doc();
+        let err = d
+            .execute(
+                "Draw",
+                &Command::AddPolyline {
+                    layer: "0".into(),
+                    points: vec![Point3::ORIGIN],
+                    closed: false,
+                },
+            )
+            .expect_err("one point is not a polyline");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
     }
 
     #[test]
