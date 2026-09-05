@@ -79,6 +79,50 @@ const DRAG_THRESHOLD_PX = 4;
 /** How close a click has to land to an entity's bounds before it counts as picking it. */
 const PICK_RADIUS_PX = 20;
 
+/**
+ * The command line's tool-switching vocabulary — each tool's own Japanese
+ * label (what its toolbar button already says, so anything visible is also
+ * typeable) plus a short English alias in the AutoCAD command-line tradition
+ * (`L`, `C`, `A`, ...). Keys are matched case-insensitively; Japanese text is
+ * unaffected by `toLowerCase()`, so one lookup covers both.
+ */
+const TOOL_ALIASES: Record<string, Tool> = {
+  線分: 'line',
+  l: 'line',
+  line: 'line',
+  円: 'circle',
+  c: 'circle',
+  circle: 'circle',
+  円弧: 'arc',
+  a: 'arc',
+  arc: 'arc',
+  ポリライン: 'polyline',
+  pl: 'polyline',
+  polyline: 'polyline',
+  文字: 'text',
+  t: 'text',
+  text: 'text',
+  寸法: 'dimension',
+  dim: 'dimension',
+  dimension: 'dimension',
+  挿入: 'insert',
+  i: 'insert',
+  insert: 'insert',
+  選択: 'select',
+  s: 'select',
+  select: 'select',
+  esc: 'select',
+  配管: 'mep',
+  m: 'mep',
+  mep: 'mep',
+  配置: 'place',
+  p: 'place',
+  place: 'place',
+};
+
+/** `x,y` in world millimetres — the command line's point-entry syntax. */
+const POINT_PATTERN = /^(-?[\d.]+)\s*,\s*(-?[\d.]+)$/;
+
 interface DragState {
   downClient: { x: number; y: number };
   downWorld: WorldPoint;
@@ -95,6 +139,7 @@ export function EditorPage() {
   const [drag, setDrag] = useState<DragState | null>(null);
   const [layer, setLayer] = useState(DEFAULT_LAYER);
   const [error, setError] = useState<string | null>(null);
+  const [commandInput, setCommandInput] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
 
   // ── Circle / arc / polyline ────────────────────────────────────────────
@@ -335,6 +380,44 @@ export function EditorPage() {
     resetInteraction();
   }
 
+  /**
+   * The command line's own Enter handler — a tool alias switches tools; an
+   * `x,y` point is fed to whichever tool is already active exactly like a
+   * click would be (`handlePoint`, shared with `onCanvasClick`); `u`/`undo`
+   * undoes. Anything else is reported through the same error banner a
+   * failed edit already uses, rather than a second UI for "something went
+   * wrong."
+   */
+  function runCommand() {
+    const raw = commandInput.trim();
+    setCommandInput('');
+    if (!raw) return;
+
+    if (raw.toLowerCase() === 'u' || raw.toLowerCase() === 'undo') {
+      undo();
+      return;
+    }
+
+    const pointMatch = POINT_PATTERN.exec(raw);
+    if (pointMatch) {
+      const [, xText, yText] = pointMatch;
+      const x = Number(xText);
+      const y = Number(yText);
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        handlePoint({ x, y });
+        return;
+      }
+    }
+
+    const nextTool = TOOL_ALIASES[raw.toLowerCase()];
+    if (nextTool) {
+      switchTool(nextTool);
+      return;
+    }
+
+    setError(`不明なコマンド: ${raw}`);
+  }
+
   function switchTool(next: Tool) {
     setTool(next);
     resetInteraction();
@@ -443,6 +526,17 @@ export function EditorPage() {
     if (!current || edit.isPending) return;
     const point = snapPoint?.world ?? toWorld(e.clientX, e.clientY);
     if (!point) return;
+    handlePoint(point);
+  }
+
+  /**
+   * Everything a click does once a world point is known — factored out so
+   * the command line's typed `x,y` entry can feed the active tool the exact
+   * same way a mouse click does, rather than duplicating every tool's logic
+   * a second time.
+   */
+  function handlePoint(point: WorldPoint) {
+    if (!current || edit.isPending) return;
 
     if (tool === 'line') {
       if (!pendingStart) {
@@ -1398,6 +1492,20 @@ export function EditorPage() {
             {(edit.isPending || pick.isPending || route.isPending || place.isPending) && (
               <span>処理中…</span>
             )}
+          </div>
+
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-ink-muted">コマンド</span>
+            <input
+              type="text"
+              value={commandInput}
+              onChange={(e) => setCommandInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') runCommand();
+              }}
+              placeholder="l / 線分 / 100,200 / u"
+              className="flex-1 rounded border border-rule bg-paper px-2 py-1 font-mono"
+            />
           </div>
 
           {tool === 'text' && textPosition && (
