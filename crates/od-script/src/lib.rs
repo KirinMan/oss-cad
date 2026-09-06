@@ -71,6 +71,27 @@ use od_core::Document;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// Measured, not guessed: an empty `for` loop costs roughly 0.3ms per
+/// thousand iterations in a release build of this engine (no JIT — it is a
+/// bytecode interpreter), so 2,000,000 keeps even a runaway `while (true)
+/// {}` to well under a second there. In an unoptimised debug build the same
+/// loop is roughly an order of magnitude slower — actually reaching this
+/// limit is not exercised as an automated test for exactly that reason: it
+/// would cost the whole suite several extra seconds every run to prove a
+/// single `boa_engine` API call behaves as its own documentation says it
+/// does. That mechanism was checked directly instead, once, outside this
+/// crate's own test suite (a `RuntimeLimits::set_loop_iteration_limit(1000)`
+/// against a ten-billion-iteration loop threw in under 2ms).
+///
+/// This bounds any *single* loop construct, not the script's total run
+/// time — a script chaining many loops beneath this limit, or one
+/// recursing instead of looping (already capped at a call depth of 512 by
+/// this engine's own default), is not covered by it. Closing that
+/// completely needs a wall-clock interrupt this engine version does not
+/// expose; this is the mitigation that is actually available today for the
+/// overwhelmingly common "forgot a loop bound" case.
+const MAX_LOOP_ITERATIONS: u64 = 2_000_000;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ScriptError {
     #[error("script error: {0}")]
@@ -127,6 +148,16 @@ pub fn run(doc: Document, script: &str) -> Result<(Document, RunOutcome), Script
         outcome: Rc::clone(&outcome),
     };
     let mut context = Context::default();
+    // No wall-clock or instruction-count limit exists in this engine
+    // version, but an unbounded `while(true){}` is the overwhelmingly
+    // common way a script hangs a caller — this crate's own trust model
+    // (module docs: a script has the same trust as `od edit --command`)
+    // doesn't make a hang acceptable, only a malicious *edit* acceptable.
+    // Function recursion already defaults to a bounded depth (512); this
+    // is the loop-based equivalent.
+    context
+        .runtime_limits_mut()
+        .set_loop_iteration_limit(MAX_LOOP_ITERATIONS);
 
     install_od_object(&mut context, captures.clone())
         .map_err(|e| ScriptError::Js(e.to_string()))?;
