@@ -466,6 +466,54 @@ describe.if(hasEngine)('drawings', () => {
     expect(body.error).toBe('bad command');
   });
 
+  test('running a script draws through od.execute and captures console.log', async () => {
+    const form = upload();
+    form.set(
+      'script',
+      `
+      od.execute({
+        kind: "add_line", layer: "A-SCRIPT",
+        a: { x: 0, y: 0, z: 0 }, b: { x: 500, y: 0, z: 0 }
+      });
+      console.log("entities now: " + od.entities().length);
+      `,
+    );
+    const res = await app.request('/api/drawings/script', { method: 'POST', body: form });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      created: string[];
+      modified: string[];
+      deleted: string[];
+      log: string[];
+      document: string;
+    };
+    expect(body.created).toHaveLength(1);
+    expect(body.log).toEqual(['entities now: 3']);
+
+    const edited = new File([Buffer.from(body.document, 'base64')], 'edited.dxf');
+    const again = new FormData();
+    again.set('file', edited);
+    const inspected = await app.request('/api/drawings/inspect', {
+      method: 'POST',
+      body: again,
+    });
+    const inspection = (await inspected.json()) as { entities: number };
+    expect(inspection.entities).toBe(3);
+  });
+
+  test('a script with a syntax error is reported as an engine error, not a crash', async () => {
+    const form = upload();
+    form.set('script', 'this is not valid javascript {{{');
+    const res = await app.request('/api/drawings/script', { method: 'POST', body: form });
+    expect(res.status).toBe(422);
+  });
+
+  test('running a script without a script field is refused before it reaches the engine', async () => {
+    const form = upload();
+    const res = await app.request('/api/drawings/script', { method: 'POST', body: form });
+    expect(res.status).toBe(400);
+  });
+
   test('mep/route draws a route and hands back the updated document and render', async () => {
     const form = upload();
     form.set('system', 'sys.water.cold');

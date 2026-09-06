@@ -75,6 +75,20 @@ enum Command {
         render: Option<PathBuf>,
     },
 
+    /// Runs a JavaScript file against a drawing and saves the result
+    /// (`od-script`).
+    ///
+    /// The script drives the document through `od.execute(command)` — the
+    /// same `Command` JSON shape `--command` above and `POST
+    /// /api/drawings/edit` already accept (ADR-006) — plus `od.entities()`/
+    /// `od.inspect()` for reading it back, and `console.log` for output.
+    Script {
+        input: PathBuf,
+        output: PathBuf,
+        /// The `.js` file to run.
+        script: PathBuf,
+    },
+
     /// Read a drawing, write it, read it back, and compare.
     Roundtrip {
         input: PathBuf,
@@ -249,6 +263,11 @@ fn main() -> Result<()> {
             command,
             render,
         } => edit_drawing(&input, &output, &command, render.as_deref(), cli.json),
+        Command::Script {
+            input,
+            output,
+            script,
+        } => run_script(&input, &output, &script, cli.json),
         Command::Check { input, rules } => check_drawing(&input, rules, cli.json),
         Command::Roundtrip { input, via } => roundtrip(&input, via, cli.json),
         Command::Render {
@@ -486,6 +505,26 @@ fn render(
     std::fs::write(output, &svg).with_context(|| format!("writing {}", output.display()))?;
 
     report::render(&db, input, output, svg.len(), view_box, json);
+    Ok(())
+}
+
+/// Runs a JavaScript file against a drawing and saves the result
+/// (`od-script`).
+fn run_script(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    script_path: &std::path::Path,
+    json: bool,
+) -> Result<()> {
+    let (db, _) = load::load(input)?;
+    let doc = od_core::Document::new(db);
+    let script = std::fs::read_to_string(script_path)
+        .with_context(|| format!("reading {}", script_path.display()))?;
+
+    let (doc, outcome) = od_script::run(doc, &script).context("running the script")?;
+
+    load::save(&doc.db, output)?;
+    report::script(&outcome, input, output, json);
     Ok(())
 }
 
