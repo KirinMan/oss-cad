@@ -44,6 +44,8 @@ pub enum BooleanOp {
 pub enum KernelError {
     #[error("solid handle {0:?} is not known to this kernel")]
     UnknownHandle(SolidHandle),
+    #[error("mesh handle {0:?} is not known to this kernel")]
+    UnknownMesh(MeshHandle),
     #[error("degenerate input: {0}")]
     Degenerate(String),
     /// Returned by the light kernel for operations only a full B-rep can do.

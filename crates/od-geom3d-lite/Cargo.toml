@@ -1,0 +1,15 @@
+[package]
+name = "od-geom3d-lite"
+description = "A lightweight SolidKernel (ADR-002): sweep + triangulate, no boolean operations, no OCCT dependency. What MEP duct/pipe/fitting geometry actually needs — the default kernel, small enough to ship to a browser."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+od-geom3d = { workspace = true }
+
+[lints]
+workspace = true

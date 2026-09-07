@@ -950,8 +950,10 @@ dependencies = [
  "od-core",
  "od-domain-mep",
  "od-geom3d",
+ "od-geom3d-lite",
  "od-index",
  "od-io-dxf",
+ "od-io-gltf",
  "od-io-odc",
  "od-io-svg",
  "od-io-sxf",
@@ -1003,6 +1005,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "od-geom3d-lite"
+version = "0.0.1"
+dependencies = [
+ "od-geom3d",
+]
+
+[[package]]
 name = "od-index"
 version = "0.0.1"
 dependencies = [
@@ -1018,6 +1027,15 @@ version = "0.0.1"
 dependencies = [
  "od-core",
  "thiserror",
+]
+
+[[package]]
+name = "od-io-gltf"
+version = "0.0.1"
+dependencies = [
+ "od-geom3d",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
