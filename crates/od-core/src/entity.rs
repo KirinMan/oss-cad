@@ -8,7 +8,7 @@
 
 use crate::id::ObjectId;
 use crate::style::GraphicStyle;
-use od_geom2d::{Point2, Polyline2};
+use od_geom2d::{Point2, Polyline2, tol};
 use od_geom3d::{Aabb3, Point3, SolidHandle, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -118,6 +118,102 @@ pub struct MTextEntity {
     pub line_spacing: f64,
     #[serde(default)]
     pub flow: TextFlow,
+}
+
+/// A linear dimension: the measured distance between `point_a` and
+/// `point_b`, displayed along a dimension line offset perpendicular to that
+/// segment — the XY-plane reading every draw command in this build uses,
+/// same as `Geometry::Circle`'s XY-plane assumption.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DimensionEntity {
+    pub point_a: Point3,
+    pub point_b: Point3,
+    /// Perpendicular distance from the segment `point_a`–`point_b` to the
+    /// dimension line; sign picks which side.
+    pub offset: f64,
+    /// `None` shows the measured distance, formatted per `style`; `Some`
+    /// overrides it with arbitrary text — a real drafting need (a tolerance
+    /// note like "±0.5", or a value taken from elsewhere) that DXF's own
+    /// DIMENSION entity supports the same way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_override: Option<String>,
+    pub style: ObjectId,
+}
+
+impl DimensionEntity {
+    /// Where the dimension line meets each extension line — `point_a`/
+    /// `point_b` shifted perpendicular to the segment between them by
+    /// `offset`. Falls back to `point_a`/`point_b` themselves when they
+    /// coincide (no direction to be perpendicular to, so no meaningful
+    /// offset either) rather than returning `None` — every caller
+    /// (rendering, bounds, snapping) wants *a* line to work with even for a
+    /// degenerate dimension, not a special case to handle.
+    #[must_use]
+    pub fn dimension_line(&self) -> (Point3, Point3) {
+        let dx = self.point_b.x - self.point_a.x;
+        let dy = self.point_b.y - self.point_a.y;
+        let len = dx.hypot(dy);
+        if len < tol::POINT_EPS {
+            return (self.point_a, self.point_b);
+        }
+        let shift = Vec3::new(-dy / len * self.offset, dx / len * self.offset, 0.0);
+        (self.point_a + shift, self.point_b + shift)
+    }
+
+    /// The measured distance between `point_a` and `point_b`.
+    #[must_use]
+    pub fn measured_length(&self) -> f64 {
+        self.point_a.distance_to(self.point_b)
+    }
+}
+
+/// A window onto model space, drawn on a paper-space layout — the classic
+/// "viewport" a print sheet is composed from. `position`/`width`/`height`
+/// are in the paper space this entity lives in; `target` is a point in
+/// *model* space, the one that appears at the viewport's own centre.
+/// `scale` is paper units per model unit (a 1:100 drawing is `0.01`).
+///
+/// Deliberately two coordinate systems in one entity rather than two
+/// entities kept in sync: a viewport genuinely is the join between them,
+/// and there is no single space either point could live in instead.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewportEntity {
+    pub position: Point3,
+    pub width: f64,
+    pub height: f64,
+    pub target: Point3,
+    pub scale: f64,
+}
+
+impl ViewportEntity {
+    /// The paper-space rectangle's four corners, in draw order.
+    #[must_use]
+    pub fn corners(&self) -> [Point3; 4] {
+        let (hw, hh) = (self.width / 2.0, self.height / 2.0);
+        [
+            Point3::new(self.position.x - hw, self.position.y - hh, self.position.z),
+            Point3::new(self.position.x + hw, self.position.y - hh, self.position.z),
+            Point3::new(self.position.x + hw, self.position.y + hh, self.position.z),
+            Point3::new(self.position.x - hw, self.position.y + hh, self.position.z),
+        ]
+    }
+
+    /// The model-space window this viewport shows — `target` at the centre,
+    /// sized so it fills the paper-space rectangle at `scale`.
+    #[must_use]
+    pub fn model_window(&self) -> Aabb3 {
+        if self.scale.abs() < tol::POINT_EPS {
+            return Aabb3::from_points([self.target]);
+        }
+        let (hw, hh) = (
+            self.width / 2.0 / self.scale,
+            self.height / 2.0 / self.scale,
+        );
+        Aabb3::from_points([
+            Point3::new(self.target.x - hw, self.target.y - hh, self.target.z),
+            Point3::new(self.target.x + hw, self.target.y + hh, self.target.z),
+        ])
+    }
 }
 
 /// A block insertion, optionally arrayed.
@@ -230,6 +326,8 @@ pub enum Geometry {
     },
     Text(Box<TextEntity>),
     MText(Box<MTextEntity>),
+    Dimension(Box<DimensionEntity>),
+    Viewport(Box<ViewportEntity>),
     BlockRef(Box<BlockRef>),
     Hatch(Box<Hatch>),
     /// A handle into the solid kernel (ADR-002). The core never inspects it.
@@ -279,6 +377,8 @@ impl Geometry {
             Geometry::Spline { .. } => "spline",
             Geometry::Text(_) => "text",
             Geometry::MText(_) => "mtext",
+            Geometry::Dimension(_) => "dimension",
+            Geometry::Viewport(_) => "viewport",
             Geometry::BlockRef(_) => "blockref",
             Geometry::Hatch(_) => "hatch",
             Geometry::Solid3d { .. } => "solid3d",
@@ -359,6 +459,14 @@ impl Geometry {
             }
             Geometry::Text(t) => Aabb3::from_points([t.position]),
             Geometry::MText(t) => Aabb3::from_points([t.position]),
+            Geometry::Dimension(d) => {
+                let (line_a, line_b) = d.dimension_line();
+                Aabb3::from_points([d.point_a, d.point_b, line_a, line_b])
+            }
+            // Paper-space bounds only — the model-space window it shows is
+            // a different space entirely and has no business in the same
+            // bounding box.
+            Geometry::Viewport(vp) => Aabb3::from_points(vp.corners()),
             Geometry::BlockRef(b) => Aabb3::from_points([b.position]),
             Geometry::Hatch(h) => h.loops.iter().fold(Aabb3::EMPTY, |acc, l| {
                 let b = l.bounds();
@@ -382,6 +490,129 @@ impl Geometry {
             }
         }
     }
+
+    /// Points worth snapping to when drawing or moving something else near
+    /// this entity — endpoints and centres, not a sampled approximation of
+    /// the curve. Deliberately not every mathematically snappable point (a
+    /// circle's quadrants, for one): this is the set a click can reach
+    /// exactly without first establishing an in-plane basis, which most of
+    /// this crate's geometry does not carry.
+    #[must_use]
+    pub fn snap_points(&self) -> Vec<Point3> {
+        match self {
+            Geometry::Point(p) => vec![*p],
+            Geometry::Line { a, b } => {
+                vec![
+                    *a,
+                    *b,
+                    Point3::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0, (a.z + b.z) / 2.0),
+                ]
+            }
+            Geometry::Circle {
+                center,
+                radius,
+                normal,
+            } => {
+                let mut points = vec![*center];
+                // Quadrant points need an in-plane basis, which only exists
+                // once `normal` is known to be non-degenerate — a circle with
+                // a zero normal is already malformed, and reporting only the
+                // centre for it is the honest answer, not a special case.
+                if let Some(z) = normal.normalized()
+                    && let Some(x) = z.any_perpendicular()
+                {
+                    let y = z.cross(x);
+                    points.push(*center + x * *radius);
+                    points.push(*center - x * *radius);
+                    points.push(*center + y * *radius);
+                    points.push(*center - y * *radius);
+                }
+                points
+            }
+            Geometry::Arc {
+                center,
+                radius,
+                start_angle,
+                sweep,
+                ..
+            } => {
+                let arc2 = od_geom2d::Arc2::new(
+                    Point2::new(center.x, center.y),
+                    *radius,
+                    *start_angle,
+                    *sweep,
+                );
+                [arc2.start_point(), arc2.end_point(), arc2.midpoint()]
+                    .into_iter()
+                    .map(|p| Point3::new(p.x, p.y, center.z))
+                    .chain(std::iter::once(*center))
+                    .collect()
+            }
+            Geometry::Ellipse { center, .. } => vec![*center],
+            Geometry::Polyline {
+                polyline,
+                elevation,
+                ..
+            } => polyline
+                .vertices
+                .iter()
+                .map(|v| Point3::new(v.point.x, v.point.y, *elevation))
+                .collect(),
+            Geometry::Polyline3d { points, .. } => points.clone(),
+            Geometry::Spline { control_points, .. } => {
+                match (control_points.first(), control_points.last()) {
+                    (Some(&first), Some(&last)) => vec![first, last],
+                    _ => Vec::new(),
+                }
+            }
+            Geometry::Text(t) => vec![t.position],
+            Geometry::MText(t) => vec![t.position],
+            Geometry::Dimension(d) => {
+                let (line_a, line_b) = d.dimension_line();
+                vec![d.point_a, d.point_b, line_a, line_b]
+            }
+            Geometry::BlockRef(b) => vec![b.position],
+            Geometry::Viewport(vp) => vp.corners().to_vec(),
+            Geometry::Hatch(_) | Geometry::Solid3d { .. } => Vec::new(),
+            Geometry::Unsupported { proxy, .. } => proxy
+                .iter()
+                .flat_map(|g| match g {
+                    ProxyGraphic::Polyline { points, .. } => points.clone(),
+                    ProxyGraphic::Text { position, .. } => vec![*position],
+                })
+                .collect(),
+        }
+    }
+
+    /// The ordered, individually-draggable points of this entity — a line's
+    /// two endpoints, or a polyline's vertices — for an editing canvas to
+    /// offer up as grip handles. Index `i` here is exactly the `index` a
+    /// [`crate::edit::Command::SetVertex`] targeting this entity means.
+    ///
+    /// Deliberately narrower than [`Geometry::snap_points`]: a line's
+    /// midpoint is worth snapping *to*, but it is not itself a vertex to
+    /// drag, and a circle or arc's centre/quadrant points are geometry
+    /// *derived from* the stored radius and centre, not independent state a
+    /// grip could move without also deciding what should happen to the
+    /// radius. Every kind this returns nothing for needs its own kind of
+    /// grip — not this one, dressed up.
+    #[must_use]
+    pub fn editable_vertices(&self) -> Vec<Point3> {
+        match self {
+            Geometry::Line { a, b } => vec![*a, *b],
+            Geometry::Polyline {
+                polyline,
+                elevation,
+                ..
+            } => polyline
+                .vertices
+                .iter()
+                .map(|v| Point3::new(v.point.x, v.point.y, *elevation))
+                .collect(),
+            Geometry::Polyline3d { points, .. } => points.clone(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -391,6 +622,102 @@ mod tests {
 
     fn id(n: u64) -> ObjectId {
         ObjectId::new(ActorId::SYSTEM, n)
+    }
+
+    #[test]
+    fn a_line_snaps_to_its_endpoints_and_midpoint() {
+        let g = Geometry::Line {
+            a: Point3::ORIGIN,
+            b: Point3::new(2000.0, 0.0, 0.0),
+        };
+        let points = g.snap_points();
+        assert_eq!(points.len(), 3);
+        assert!(points.contains(&Point3::ORIGIN));
+        assert!(points.contains(&Point3::new(2000.0, 0.0, 0.0)));
+        assert!(points.contains(&Point3::new(1000.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn a_lines_editable_vertices_are_exactly_its_two_endpoints_in_order() {
+        let g = Geometry::Line {
+            a: Point3::ORIGIN,
+            b: Point3::new(2000.0, 0.0, 0.0),
+        };
+        assert_eq!(
+            g.editable_vertices(),
+            vec![Point3::ORIGIN, Point3::new(2000.0, 0.0, 0.0)]
+        );
+    }
+
+    #[test]
+    fn a_circle_has_no_editable_vertices() {
+        let g = Geometry::Circle {
+            center: Point3::ORIGIN,
+            radius: 500.0,
+            normal: Vec3::Z,
+        };
+        assert!(g.editable_vertices().is_empty());
+    }
+
+    #[test]
+    fn an_arc_snaps_to_its_endpoints_midpoint_and_centre() {
+        let g = Geometry::Arc {
+            center: Point3::new(0.0, 0.0, 500.0),
+            radius: 10.0,
+            start_angle: 0.0,
+            sweep: std::f64::consts::FRAC_PI_2,
+            normal: Vec3::Z,
+        };
+        let points = g.snap_points();
+        assert_eq!(points.len(), 4);
+        assert!(points.contains(&Point3::new(0.0, 0.0, 500.0)), "centre");
+        assert!(
+            points
+                .iter()
+                .any(|p| p.coincides_with(Point3::new(10.0, 0.0, 500.0)))
+        );
+        assert!(
+            points
+                .iter()
+                .any(|p| p.coincides_with(Point3::new(0.0, 10.0, 500.0)))
+        );
+    }
+
+    #[test]
+    fn a_circle_snaps_to_its_centre_and_quadrants() {
+        let g = Geometry::Circle {
+            center: Point3::new(100.0, 200.0, 0.0),
+            radius: 50.0,
+            normal: Vec3::Z,
+        };
+        let points = g.snap_points();
+        assert_eq!(points.len(), 5);
+        assert!(points.contains(&Point3::new(100.0, 200.0, 0.0)), "centre");
+        for expected in [
+            Point3::new(150.0, 200.0, 0.0),
+            Point3::new(50.0, 200.0, 0.0),
+            Point3::new(100.0, 250.0, 0.0),
+            Point3::new(100.0, 150.0, 0.0),
+        ] {
+            assert!(
+                points.iter().any(|p| p.coincides_with(expected)),
+                "missing quadrant at {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_block_reference_snaps_to_its_insertion_point() {
+        let g = Geometry::BlockRef(Box::new(BlockRef {
+            block: id(9),
+            position: Point3::new(1234.0, 5678.0, 0.0),
+            scale: Vec3::new(1.0, 1.0, 1.0),
+            rotation: 0.0,
+            attributes: vec![],
+            array: (1, 1),
+            array_spacing: (0.0, 0.0),
+        }));
+        assert_eq!(g.snap_points(), vec![Point3::new(1234.0, 5678.0, 0.0)]);
     }
 
     #[test]

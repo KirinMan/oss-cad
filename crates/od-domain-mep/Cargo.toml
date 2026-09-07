@@ -1,0 +1,21 @@
+[package]
+name = "od-domain-mep"
+description = "The MEP domain: routes, fittings, equipment and the connection graph they form. Built entirely on od-core's extension mechanism — the core never hears the word 'duct'."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+od-core = { workspace = true }
+od-geom3d = { workspace = true }
+od-index = { workspace = true }
+od-parts = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

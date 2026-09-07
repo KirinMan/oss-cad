@@ -4,10 +4,13 @@
 //! CI parses drifting apart is how "it passed locally" happens.
 
 use crate::check::{Finding, Severity};
+use crate::load::LoadOutcome;
 use od_core::Database;
-use od_io_dxf::ReadOutcome;
+use od_domain_mep::graph::ConnectionGraph;
+use od_domain_mep::takeoff::Takeoff;
 use od_parts::{Catalog, Instance, Part};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::Path;
 
 fn emit<T: Serialize>(value: &T) {
@@ -20,17 +23,19 @@ fn emit<T: Serialize>(value: &T) {
 #[derive(Serialize)]
 struct Summary<'a> {
     file: String,
+    format: &'static str,
     entities: usize,
     layers: usize,
     blocks: usize,
     preserved_entities: usize,
     preserved_sections: usize,
     unsupported_types: &'a [String],
+    unsupported_features: &'a [String],
     warnings: usize,
     extents_mm: [f64; 6],
 }
 
-fn summarise<'a>(db: &Database, outcome: &'a ReadOutcome, path: &Path) -> Summary<'a> {
+fn summarise<'a>(db: &Database, outcome: &'a LoadOutcome, path: &Path) -> Summary<'a> {
     let s = db.stats();
     let b = s.bounds;
     let extents = if b.is_empty() {
@@ -40,18 +45,20 @@ fn summarise<'a>(db: &Database, outcome: &'a ReadOutcome, path: &Path) -> Summar
     };
     Summary {
         file: path.display().to_string(),
+        format: outcome.format,
         entities: s.entities,
         layers: s.layers,
         blocks: s.blocks,
         preserved_entities: s.unsupported_entities,
         preserved_sections: s.preserved_blobs,
-        unsupported_types: &outcome.unsupported_types,
+        unsupported_types: &outcome.unsupported_entities,
+        unsupported_features: &outcome.unsupported_features,
         warnings: outcome.warnings.len(),
         extents_mm: extents,
     }
 }
 
-pub fn inspection(db: &Database, outcome: &ReadOutcome, path: &Path, json: bool) {
+pub fn inspection(db: &Database, outcome: &LoadOutcome, path: &Path, json: bool) {
     if json {
         #[derive(Serialize)]
         struct Detailed<'a> {
@@ -59,6 +66,10 @@ pub fn inspection(db: &Database, outcome: &ReadOutcome, path: &Path, json: bool)
             summary: Summary<'a>,
             entities_by_type: indexmap::IndexMap<String, usize>,
             layer_names: Vec<String>,
+            /// Ordinary, insertable block definitions — not model/paper
+            /// space, which are `BlockRecord`s too but not ones `od mep
+            /// place`-style "insert this" tooling should ever offer up.
+            block_names: Vec<String>,
         }
         emit(&Detailed {
             summary: summarise(db, outcome, path),
@@ -68,6 +79,13 @@ pub fn inspection(db: &Database, outcome: &ReadOutcome, path: &Path, json: bool)
                 .layers
                 .iter()
                 .map(|(_, l)| l.name.clone())
+                .collect(),
+            block_names: db
+                .tables
+                .blocks
+                .iter()
+                .filter(|(_, b)| b.kind == od_core::BlockKind::Definition)
+                .map(|(_, b)| b.name.clone())
                 .collect(),
         });
         return;
@@ -98,11 +116,17 @@ pub fn inspection(db: &Database, outcome: &ReadOutcome, path: &Path, json: bool)
         }
     }
 
-    if !outcome.unsupported_types.is_empty() {
+    if !outcome.unsupported_entities.is_empty() {
         println!(
             "\n  preserved verbatim ({} entities): {}",
             s.unsupported_entities,
-            outcome.unsupported_types.join(", ")
+            outcome.unsupported_entities.join(", ")
+        );
+    }
+    if !outcome.unsupported_features.is_empty() {
+        println!(
+            "  preserved from a newer build: {}",
+            outcome.unsupported_features.join(", ")
         );
     }
     if s.preserved_blobs > 0 {
@@ -119,17 +143,27 @@ pub fn inspection(db: &Database, outcome: &ReadOutcome, path: &Path, json: bool)
     }
 }
 
-pub fn conversion(db: &Database, outcome: &ReadOutcome, input: &Path, output: &Path, json: bool) {
+pub fn conversion(
+    db: &Database,
+    outcome: &LoadOutcome,
+    input: &Path,
+    output: &Path,
+    losses: &[String],
+    json: bool,
+) {
     if json {
         #[derive(Serialize)]
         struct Result<'a> {
             #[serde(flatten)]
             summary: Summary<'a>,
             output: String,
+            /// What the target format cannot carry. Empty for `.odc`.
+            losses: &'a [String],
         }
         emit(&Result {
             summary: summarise(db, outcome, input),
             output: output.display().to_string(),
+            losses,
         });
         return;
     }
@@ -146,8 +180,15 @@ pub fn conversion(db: &Database, outcome: &ReadOutcome, input: &Path, output: &P
         println!(
             "  {} entity(ies) preserved verbatim: {}",
             s.unsupported_entities,
-            outcome.unsupported_types.join(", ")
+            outcome.unsupported_entities.join(", ")
         );
+    }
+    if !losses.is_empty() {
+        println!("\n  this format cannot carry:");
+        for loss in losses {
+            println!("    {loss}");
+        }
+        println!("    (save as .odc to keep them)");
     }
     if !outcome.warnings.is_empty() {
         println!(
@@ -192,8 +233,9 @@ pub fn findings(findings: &[Finding], path: &Path, json: bool) {
 pub fn roundtrip(
     first: &Database,
     second: &Database,
-    outcome: &ReadOutcome,
+    warnings_on_reread: usize,
     path: &Path,
+    format: &str,
     json: bool,
 ) -> bool {
     let (a, b) = (first.stats(), second.stats());
@@ -215,8 +257,9 @@ pub fn roundtrip(
 
     if json {
         #[derive(Serialize)]
-        struct Report {
+        struct Report<'a> {
             file: String,
+            format: &'a str,
             identical: bool,
             entities_before: usize,
             entities_after: usize,
@@ -227,18 +270,19 @@ pub fn roundtrip(
         }
         emit(&Report {
             file: path.display().to_string(),
+            format,
             identical: !differs,
             entities_before: a.entities,
             entities_after: b.entities,
             layers_before: a.layers,
             layers_after: b.layers,
             max_extent_shift_mm: extent_shift,
-            warnings_on_reread: outcome.warnings.len(),
+            warnings_on_reread,
         });
         return differs;
     }
 
-    println!("{}", path.display());
+    println!("{} (via {format})", path.display());
     println!("  entities  {} → {}", a.entities, b.entities);
     println!("  layers    {} → {}", a.layers, b.layers);
     println!("  extents   shifted by {extent_shift:.9} mm");
@@ -463,4 +507,517 @@ pub fn specs(catalog: &Catalog, id: Option<&str>, json: bool) {
             }
         }
     }
+}
+
+pub fn render(
+    db: &Database,
+    input: &Path,
+    output: &Path,
+    bytes: usize,
+    view_box: od_io_svg::ViewBox,
+    json: bool,
+) {
+    let s = db.stats();
+    if json {
+        #[derive(Serialize)]
+        struct Report {
+            input: String,
+            output: String,
+            entities: usize,
+            svg_bytes: usize,
+            /// `[min_x, min_y, width, height]`, drawing millimetres, already
+            /// Y-flipped to match the SVG's own coordinate space — what a
+            /// client needs to map a click on the image back to a drawing
+            /// coordinate.
+            view_box: [f64; 4],
+        }
+        emit(&Report {
+            input: input.display().to_string(),
+            output: output.display().to_string(),
+            entities: s.entities,
+            svg_bytes: bytes,
+            view_box: [
+                view_box.min_x,
+                view_box.min_y,
+                view_box.width,
+                view_box.height,
+            ],
+        });
+        return;
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "an SVG report is well under a terabyte; the display value only needs to be close"
+    )]
+    let kb = bytes as f64 / 1024.0;
+    println!(
+        "{} → {}  ({} entities, {kb:.1} KB)",
+        input.display(),
+        output.display(),
+        s.entities,
+    );
+}
+
+pub fn edit(
+    outcome: &od_core::CommandOutcome,
+    input: &Path,
+    output: &Path,
+    rendered: Option<(&Path, od_io_svg::ViewBox)>,
+    json: bool,
+) {
+    if json {
+        #[derive(Serialize)]
+        struct Report<'a> {
+            input: String,
+            output: String,
+            created: &'a [od_core::ObjectId],
+            modified: &'a [od_core::ObjectId],
+            deleted: &'a [od_core::ObjectId],
+            render: Option<RenderedInfo>,
+        }
+        #[derive(Serialize)]
+        struct RenderedInfo {
+            output: String,
+            view_box: [f64; 4],
+        }
+        emit(&Report {
+            input: input.display().to_string(),
+            output: output.display().to_string(),
+            created: &outcome.created,
+            modified: &outcome.modified,
+            deleted: &outcome.deleted,
+            render: rendered.map(|(path, vb)| RenderedInfo {
+                output: path.display().to_string(),
+                view_box: [vb.min_x, vb.min_y, vb.width, vb.height],
+            }),
+        });
+        return;
+    }
+
+    println!("{} → {}", input.display(), output.display());
+    println!(
+        "  {} created, {} modified, {} deleted",
+        outcome.created.len(),
+        outcome.modified.len(),
+        outcome.deleted.len()
+    );
+    if let Some((path, _)) = rendered {
+        println!("  rendered → {}", path.display());
+    }
+}
+
+pub fn script(outcome: &od_script::RunOutcome, input: &Path, output: &Path, json: bool) {
+    if json {
+        #[derive(Serialize)]
+        struct Report<'a> {
+            input: String,
+            output: String,
+            created: &'a [String],
+            modified: &'a [String],
+            deleted: &'a [String],
+            log: &'a [String],
+        }
+        emit(&Report {
+            input: input.display().to_string(),
+            output: output.display().to_string(),
+            created: &outcome.created,
+            modified: &outcome.modified,
+            deleted: &outcome.deleted,
+            log: &outcome.log,
+        });
+        return;
+    }
+
+    println!("{} → {}", input.display(), output.display());
+    println!(
+        "  {} created, {} modified, {} deleted",
+        outcome.created.len(),
+        outcome.modified.len(),
+        outcome.deleted.len()
+    );
+    for line in &outcome.log {
+        println!("  console: {line}");
+    }
+}
+
+pub fn mep_demo(db: &Database, output: &Path, fittings: usize, segments: usize, json: bool) {
+    let s = db.stats();
+    if json {
+        #[derive(Serialize)]
+        struct Report {
+            output: String,
+            entities: usize,
+            fittings_placed: usize,
+            route_segments: usize,
+        }
+        emit(&Report {
+            output: output.display().to_string(),
+            entities: s.entities,
+            fittings_placed: fittings,
+            route_segments: segments,
+        });
+        return;
+    }
+    println!(
+        "{}  ({} entities, {segments} route segment(s), {fittings} auto-inserted fitting(s))",
+        output.display(),
+        s.entities
+    );
+}
+
+pub fn mep_route(
+    input: &Path,
+    output: &Path,
+    segments: usize,
+    fittings: usize,
+    rendered: Option<(&Path, od_io_svg::ViewBox)>,
+    json: bool,
+) {
+    if json {
+        #[derive(Serialize)]
+        struct RenderedInfo {
+            output: String,
+            view_box: [f64; 4],
+        }
+        #[derive(Serialize)]
+        struct Report {
+            input: String,
+            output: String,
+            segments: usize,
+            fittings: usize,
+            render: Option<RenderedInfo>,
+        }
+        emit(&Report {
+            input: input.display().to_string(),
+            output: output.display().to_string(),
+            segments,
+            fittings,
+            render: rendered.map(|(path, vb)| RenderedInfo {
+                output: path.display().to_string(),
+                view_box: [vb.min_x, vb.min_y, vb.width, vb.height],
+            }),
+        });
+        return;
+    }
+    println!(
+        "{} → {}  ({segments} route segment(s), {fittings} auto-inserted fitting(s))",
+        input.display(),
+        output.display(),
+    );
+    if let Some((path, _)) = rendered {
+        println!("  rendered → {}", path.display());
+    }
+}
+
+pub fn mep_place(
+    input: &Path,
+    output: &Path,
+    id: od_core::ObjectId,
+    rendered: Option<(&Path, od_io_svg::ViewBox)>,
+    json: bool,
+) {
+    if json {
+        #[derive(Serialize)]
+        struct RenderedInfo {
+            output: String,
+            view_box: [f64; 4],
+        }
+        #[derive(Serialize)]
+        struct Report {
+            input: String,
+            output: String,
+            created: od_core::ObjectId,
+            render: Option<RenderedInfo>,
+        }
+        emit(&Report {
+            input: input.display().to_string(),
+            output: output.display().to_string(),
+            created: id,
+            render: rendered.map(|(path, vb)| RenderedInfo {
+                output: path.display().to_string(),
+                view_box: [vb.min_x, vb.min_y, vb.width, vb.height],
+            }),
+        });
+        return;
+    }
+    println!("{} → {}  (placed {id})", input.display(), output.display());
+    if let Some((path, _)) = rendered {
+        println!("  rendered → {}", path.display());
+    }
+}
+
+pub fn mep_takeoff(t: &Takeoff, path: &Path, json: bool) {
+    if json {
+        #[derive(Serialize)]
+        struct RouteRow<'a> {
+            system: &'a str,
+            spec: &'a str,
+            length_mm: f64,
+            count: usize,
+        }
+        #[derive(Serialize)]
+        struct Report<'a> {
+            file: String,
+            total_length_mm: f64,
+            routes: Vec<RouteRow<'a>>,
+            fittings: &'a HashMap<String, usize>,
+            equipment: &'a HashMap<String, usize>,
+        }
+        let mut routes: Vec<RouteRow> = t
+            .routes
+            .iter()
+            .map(|((system, spec), total)| RouteRow {
+                system,
+                spec,
+                length_mm: total.length_mm,
+                count: total.count,
+            })
+            .collect();
+        routes.sort_by(|a, b| a.system.cmp(b.system).then(a.spec.cmp(b.spec)));
+        emit(&Report {
+            file: path.display().to_string(),
+            total_length_mm: t.total_length_mm(),
+            routes,
+            fittings: &t.fittings,
+            equipment: &t.equipment,
+        });
+        return;
+    }
+
+    println!("{}", path.display());
+    if t.routes.is_empty() {
+        println!("  no routed runs");
+    } else {
+        println!(
+            "\n  {:<24} {:<28} {:>12} {:>8}",
+            "system", "spec", "length (mm)", "runs"
+        );
+        let mut routes: Vec<_> = t.routes.iter().collect();
+        routes.sort_by(|a, b| a.0.cmp(b.0));
+        for ((system, spec), total) in routes {
+            println!(
+                "  {system:<24} {spec:<28} {:>12.0} {:>8}",
+                total.length_mm, total.count
+            );
+        }
+        println!("\n  total length  {:.0} mm", t.total_length_mm());
+    }
+
+    if !t.equipment.is_empty() {
+        println!("\n  equipment");
+        let mut equipment: Vec<_> = t.equipment.iter().collect();
+        equipment.sort_by(|a, b| a.0.cmp(b.0));
+        for (part_id, count) in equipment {
+            println!("    {part_id:<32} {count}");
+        }
+    }
+    if !t.fittings.is_empty() {
+        println!("\n  fittings");
+        let mut fittings: Vec<_> = t.fittings.iter().collect();
+        fittings.sort_by(|a, b| a.0.cmp(b.0));
+        for (part_id, count) in fittings {
+            println!("    {part_id:<32} {count}");
+        }
+    }
+}
+
+pub fn mep_check(graph: &ConnectionGraph, path: &Path, json: bool) {
+    let unconnected = graph.unconnected();
+    if json {
+        #[derive(Serialize)]
+        struct PortRow {
+            owner: String,
+            name: String,
+            position_mm: [f64; 3],
+        }
+        #[derive(Serialize)]
+        struct Report {
+            file: String,
+            passed: bool,
+            ports: usize,
+            connections: usize,
+            unconnected: Vec<PortRow>,
+            skipped: Vec<String>,
+        }
+        emit(&Report {
+            file: path.display().to_string(),
+            passed: unconnected.is_empty() && graph.skipped().is_empty(),
+            ports: graph.ports().len(),
+            connections: graph.connections().count(),
+            unconnected: unconnected
+                .iter()
+                .map(|p| PortRow {
+                    owner: p.owner.to_string(),
+                    name: p.name.clone(),
+                    position_mm: [p.position.x, p.position.y, p.position.z],
+                })
+                .collect(),
+            skipped: graph.skipped().iter().map(ToString::to_string).collect(),
+        });
+        return;
+    }
+
+    println!("{}", path.display());
+    println!(
+        "  {} port(s), {} connection(s)",
+        graph.ports().len(),
+        graph.connections().count()
+    );
+    if unconnected.is_empty() {
+        println!("  no unconnected ports");
+    } else {
+        println!("\n  unconnected ({})", unconnected.len());
+        for p in &unconnected {
+            println!(
+                "    {}  {:<8} at ({:.0}, {:.0}, {:.0})",
+                p.owner, p.name, p.position.x, p.position.y, p.position.z
+            );
+        }
+    }
+    if !graph.skipped().is_empty() {
+        println!("\n  could not resolve ({})", graph.skipped().len());
+        for id in graph.skipped() {
+            println!("    {id}");
+        }
+    }
+}
+
+pub fn mep_ports(graph: &ConnectionGraph, path: &Path, json: bool) {
+    if json {
+        #[derive(Serialize)]
+        struct PortRow<'a> {
+            owner: String,
+            name: &'a str,
+            position_mm: [f64; 3],
+            direction: [f64; 3],
+            profile: &'a od_parts::Profile,
+            system_kind: od_parts::SystemKind,
+            connected: bool,
+        }
+        #[derive(Serialize)]
+        struct Report<'a> {
+            file: String,
+            ports: Vec<PortRow<'a>>,
+        }
+        emit(&Report {
+            file: path.display().to_string(),
+            ports: graph
+                .ports_with_status()
+                .map(|(p, connected)| PortRow {
+                    owner: p.owner.to_string(),
+                    name: &p.name,
+                    position_mm: [p.position.x, p.position.y, p.position.z],
+                    direction: [p.direction.x, p.direction.y, p.direction.z],
+                    profile: &p.profile,
+                    system_kind: p.system_kind,
+                    connected,
+                })
+                .collect(),
+        });
+        return;
+    }
+
+    println!("{}", path.display());
+    for (p, connected) in graph.ports_with_status() {
+        println!(
+            "  {}  {:<8} at ({:.0}, {:.0}, {:.0})  {}",
+            p.owner,
+            p.name,
+            p.position.x,
+            p.position.y,
+            p.position.z,
+            if connected {
+                "connected"
+            } else {
+                "unconnected"
+            },
+        );
+    }
+}
+
+/// Reports the result of a spatial query.
+///
+/// The layer and type of each hit, not just its id: an id alone tells the
+/// reader nothing about whether the index found what they meant.
+pub fn query(db: &Database, found: &[od_core::ObjectId], indexed: usize, json: bool) {
+    #[derive(Serialize)]
+    struct Hit {
+        id: String,
+        kind: String,
+        layer: String,
+        bounds_mm: [f64; 6],
+        /// Endpoints, centres and midpoints — what an editing canvas snaps a
+        /// click to, distinct from `bounds_mm` because a box corner is
+        /// usually not a point the entity actually passes through.
+        snap_points_mm: Vec<[f64; 3]>,
+        /// Ordered, individually-draggable points — grip handles. Deliberately
+        /// not the same list as `snap_points_mm` (which mixes in midpoints
+        /// and centres that are not vertices at all): index `i` here is
+        /// exactly the `index` a `set_vertex` command targeting this entity
+        /// means, so mixing in a non-vertex point would silently mislabel
+        /// every grip after it.
+        vertices_mm: Vec<[f64; 3]>,
+    }
+
+    let hits: Vec<Hit> = found
+        .iter()
+        .filter_map(|id| {
+            let entity = db.entity(*id)?;
+            let b = db.entity_bounds(*id);
+            Some(Hit {
+                id: id.to_string(),
+                kind: entity.geom.type_name().to_owned(),
+                layer: db
+                    .tables
+                    .layers
+                    .get(entity.layer)
+                    .map_or_else(|| "?".to_owned(), |l| l.name.clone()),
+                bounds_mm: if b.is_empty() {
+                    [0.0; 6]
+                } else {
+                    [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z]
+                },
+                snap_points_mm: entity
+                    .geom
+                    .snap_points()
+                    .into_iter()
+                    .map(|p| [p.x, p.y, p.z])
+                    .collect(),
+                vertices_mm: entity
+                    .geom
+                    .editable_vertices()
+                    .into_iter()
+                    .map(|p| [p.x, p.y, p.z])
+                    .collect(),
+            })
+        })
+        .collect();
+
+    if json {
+        #[derive(Serialize)]
+        struct Report<'a> {
+            matched: usize,
+            indexed: usize,
+            hits: &'a [Hit],
+        }
+        emit(&Report {
+            matched: hits.len(),
+            indexed,
+            hits: &hits,
+        });
+        return;
+    }
+
+    if hits.is_empty() {
+        println!("nothing found ({indexed} entities indexed)");
+        return;
+    }
+    println!("{:<14} {:<12} {:<20} position", "id", "type", "layer");
+    for hit in &hits {
+        println!(
+            "{:<14} {:<12} {:<20} ({:.0}, {:.0})",
+            hit.id, hit.kind, hit.layer, hit.bounds_mm[0], hit.bounds_mm[1]
+        );
+    }
+    println!("\n{} of {indexed} entities", hits.len());
 }

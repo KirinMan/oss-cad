@@ -29,6 +29,15 @@ pub enum DbError {
         name: String,
         problems: Vec<DbError>,
     },
+
+    #[error("entity {id} is a {geometry}, which this edit does not yet support")]
+    UnsupportedEdit { id: ObjectId, geometry: String },
+
+    /// A [`crate::Command`]'s own arguments fail a check the type system
+    /// cannot express — e.g. a polyline whose points do not share one
+    /// elevation, which `Geometry::Polyline` requires because it is planar.
+    #[error("invalid command: {0}")]
+    InvalidCommand(String),
 }
 
 pub type Result<T> = std::result::Result<T, DbError>;

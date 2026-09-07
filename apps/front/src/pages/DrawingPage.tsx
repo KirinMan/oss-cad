@@ -1,33 +1,81 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import type { CheckReport, Inspection } from '@opendraft/shared';
-import { checkDrawing, inspectDrawing } from '../api.ts';
+import type {
+  CheckReport,
+  Inspection,
+  MepCheckReport,
+  MepTakeoffReport,
+} from '@opendraft/shared';
+import {
+  checkDrawing,
+  checkMep,
+  inspectDrawing,
+  saveDrawing,
+  takeoffMep,
+  type SaveFormat,
+} from '../api.ts';
+import { DrawingViewer } from '../components/DrawingViewer.tsx';
 
 /**
- * Upload a DXF, see what is in it, and check it against a rule set.
+ * Open a drawing, see what is in it, check it, and save it.
  *
- * This is the Phase 1 promise in its smallest useful form: anyone can open a
- * drawing without installing anything. Files are not stored — the service
- * deletes each upload as soon as the report is produced.
+ * Anyone can open a drawing without installing anything, and files are not
+ * stored — the service deletes each upload as soon as the report is produced.
+ *
+ * Saving defaults to `.odc` because it is the only format that keeps the whole
+ * document. Choosing DXF is choosing an exchange copy, and the UI says what
+ * that costs before the file is downloaded rather than after.
  */
 export function DrawingPage() {
   const [file, setFile] = useState<File | null>(null);
   const [rules, setRules] = useState<'basic' | 'jp'>('jp');
+  const [dark, setDark] = useState(false);
+  const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
 
   const analysis = useMutation({
     mutationFn: async (f: File) => {
-      const [inspection, check] = await Promise.all([
+      const [inspection, check, takeoff, mepCheck] = await Promise.all([
         inspectDrawing(f),
         checkDrawing(f, rules),
+        takeoffMep(f),
+        checkMep(f),
       ]);
-      return { inspection, check };
+      return { inspection, check, takeoff, mepCheck };
+    },
+  });
+
+  const save = useMutation({
+    mutationFn: async ({ file: f, to }: { file: File; to: SaveFormat }) => {
+      const saved = await saveDrawing(f, to);
+      // Hand the bytes to the browser. Revoking the URL immediately after the
+      // click would race the download in some browsers, so it is deferred.
+      const url = URL.createObjectURL(saved.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = saved.filename;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return saved;
     },
   });
 
   function onSelect(f: File | null) {
     setFile(f);
+    setHiddenLayers(new Set());
     analysis.reset();
     if (f) analysis.mutate(f);
+  }
+
+  const allLayers = analysis.data?.inspection.layer_names ?? [];
+  const visibleLayers = new Set(allLayers.filter((n) => !hiddenLayers.has(n)));
+
+  function toggleLayer(name: string) {
+    setHiddenLayers((hidden) => {
+      const next = new Set(hidden);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
   }
 
   return (
@@ -44,11 +92,11 @@ export function DrawingPage() {
         <label className="cursor-pointer rounded border border-rule bg-paper-raised px-4 py-2 text-sm transition-colors hover:border-accent">
           <input
             type="file"
-            accept=".dxf"
+            accept=".dxf,.odc"
             className="sr-only"
             onChange={(e) => onSelect(e.target.files?.[0] ?? null)}
           />
-          DXF を選択
+          図面を選択（DXF / ODC）
         </label>
         {file && (
           <span className="text-sm text-ink-muted">
@@ -81,13 +129,133 @@ export function DrawingPage() {
         </p>
       )}
 
-      {analysis.data && (
+      {analysis.data && file && (
         <div className="space-y-6">
+          <section className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <h2 className="text-xs font-semibold tracking-widest text-ink-muted uppercase">
+                図面
+              </h2>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={dark}
+                  onChange={(e) => setDark(e.target.checked)}
+                />
+                暗い背景
+              </label>
+            </div>
+
+            <DrawingViewer
+              file={file}
+              layers={allLayers}
+              visibleLayers={visibleLayers}
+              dark={dark}
+            />
+
+            {allLayers.length > 1 && (
+              <div className="flex flex-wrap gap-1">
+                {allLayers.map((name) => {
+                  const shown = !hiddenLayers.has(name);
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => toggleLayer(name)}
+                      aria-pressed={shown}
+                      className={`rounded border px-2 py-0.5 font-mono text-xs transition-colors ${
+                        shown
+                          ? 'border-rule bg-paper-raised text-ink'
+                          : 'border-transparent bg-rule/30 text-ink-muted line-through'
+                      }`}
+                    >
+                      {name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <SaveBar
+            busy={save.isPending}
+            result={save.data ?? null}
+            error={save.error}
+            onSave={(to) => save.mutate({ file, to })}
+          />
           <InspectionView data={analysis.data.inspection} />
           <CheckView data={analysis.data.check} />
+          <TakeoffView data={analysis.data.takeoff} />
+          <MepCheckView data={analysis.data.mepCheck} />
         </div>
       )}
     </div>
+  );
+}
+
+function SaveBar({
+  busy,
+  result,
+  error,
+  onSave,
+}: {
+  busy: boolean;
+  result: { filename: string; losses: string[] } | null;
+  error: Error | null;
+  onSave: (to: SaveFormat) => void;
+}) {
+  return (
+    <section className="space-y-2 rounded border border-rule bg-paper-raised px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-sm font-medium">保存</span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onSave('odc')}
+          className="rounded bg-accent px-3 py-1.5 text-sm text-paper-raised disabled:opacity-50"
+        >
+          .odc で保存
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onSave('dxf')}
+          className="rounded border border-rule px-3 py-1.5 text-sm disabled:opacity-50"
+        >
+          DXF で書き出し
+        </button>
+        <span className="text-xs text-ink-muted">
+          .odc は属性・スキーマ・階・通り芯まで保持します
+        </span>
+      </div>
+
+      {busy && <p className="text-sm text-ink-muted">変換中…</p>}
+
+      {error && (
+        <p className="text-sm text-sys-fire">保存できませんでした: {error.message}</p>
+      )}
+
+      {result && (
+        <div className="text-sm">
+          <p>
+            <span className="font-mono">{result.filename}</span> をダウンロードしました。
+          </p>
+          {result.losses.length > 0 && (
+            <div className="mt-1 rounded border border-sys-drainage/40 bg-sys-drainage/10 px-3 py-2">
+              <p className="font-medium">この形式では保持できなかったもの</p>
+              <ul className="mt-1 list-disc pl-5">
+                {result.losses.map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs text-ink-muted">
+                これらを残すには .odc で保存してください。
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -105,7 +273,7 @@ function InspectionView({ data }: { data: Inspection }) {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="エンティティ" value={data.entities.toLocaleString()} />
         <Stat label="レイヤ" value={String(data.layers)} />
-        <Stat label="ブロック" value={String(data.blocks)} />
+        <Stat label="形式" value={data.format.toUpperCase()} />
         <Stat
           label="図面範囲"
           value={
@@ -115,6 +283,15 @@ function InspectionView({ data }: { data: Inspection }) {
           }
         />
       </div>
+
+      {data.unsupported_features.length > 0 && (
+        <p className="rounded border border-rule bg-paper-raised px-4 py-3 text-sm">
+          この図面には、より新しいバージョンが書き込んだ内容（
+          {data.unsupported_features.join('、')}
+          ）が含まれています。編集はできませんが、
+          <strong className="font-medium">保存しても失われません</strong>。
+        </p>
+      )}
 
       {(data.preserved_entities > 0 || data.preserved_sections > 0) && (
         <p className="rounded border border-rule bg-paper-raised px-4 py-3 text-sm">
@@ -183,6 +360,152 @@ function CheckView({ data }: { data: CheckReport }) {
                 {f.message}
                 <span className="ml-2 font-mono text-xs text-ink-muted">{f.rule}</span>
               </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function TakeoffView({ data }: { data: MepTakeoffReport }) {
+  const hasEquipment = Object.keys(data.equipment).length > 0;
+  const hasFittings = Object.keys(data.fittings).length > 0;
+  if (data.routes.length === 0 && !hasEquipment && !hasFittings) {
+    // Nothing routed or placed — most drawings this page sees are plain
+    // architectural/duct backgrounds, and an empty MEP section would just be
+    // noise on every one of them.
+    return null;
+  }
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-xs font-semibold tracking-widest text-ink-muted uppercase">
+        拾い出し
+      </h2>
+
+      {data.routes.length > 0 && (
+        <div className="overflow-x-auto rounded border border-rule">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-rule bg-paper-raised text-left text-xs text-ink-muted">
+                <th className="px-3 py-2 font-medium">系統</th>
+                <th className="px-3 py-2 font-medium">仕様</th>
+                <th className="px-3 py-2 text-right font-medium">延長 (m)</th>
+                <th className="px-3 py-2 text-right font-medium">本数</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.routes.map((r) => (
+                <tr
+                  key={`${r.system}/${r.spec}`}
+                  className="border-b border-rule/50 last:border-0"
+                >
+                  <td className="px-3 py-1.5 font-mono text-xs">{r.system}</td>
+                  <td className="px-3 py-1.5 font-mono text-xs">{r.spec}</td>
+                  <td className="px-3 py-1.5 text-right tabular">
+                    {(r.length_mm / 1000).toFixed(1)}
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular">{r.count}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-rule bg-paper-raised font-medium">
+                <td className="px-3 py-1.5" colSpan={2}>
+                  合計
+                </td>
+                <td className="px-3 py-1.5 text-right tabular">
+                  {(data.total_length_mm / 1000).toFixed(1)}
+                </td>
+                <td className="px-3 py-1.5" />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      {(hasFittings || hasEquipment) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {hasFittings && <PartCountList title="継手" counts={data.fittings} />}
+          {hasEquipment && <PartCountList title="機器" counts={data.equipment} />}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PartCountList({
+  title,
+  counts,
+}: {
+  title: string;
+  counts: Record<string, number>;
+}) {
+  const entries = Object.entries(counts).sort(([, a], [, b]) => b - a);
+  return (
+    <div>
+      <h3 className="mb-1 text-sm font-medium">{title}</h3>
+      <ul className="space-y-0.5 text-sm tabular">
+        {entries.map(([id, count]) => (
+          <li
+            key={id}
+            className="flex justify-between gap-4 border-b border-rule/50 py-0.5"
+          >
+            <span className="font-mono text-xs">{id}</span>
+            <span>{count}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function MepCheckView({ data }: { data: MepCheckReport }) {
+  if (data.ports === 0) {
+    // No MEP objects in this drawing at all — nothing to say.
+    return null;
+  }
+
+  return (
+    <section className="space-y-2">
+      <h2 className="text-xs font-semibold tracking-widest text-ink-muted uppercase">
+        MEP接続チェック
+      </h2>
+      <p className="text-sm text-ink-muted">
+        {data.ports} 接続口、{data.connections} 接続済み
+      </p>
+
+      {data.passed ? (
+        <p className="text-sm">未接続の口はありません。</p>
+      ) : (
+        <ul className="space-y-1">
+          {data.unconnected.map((p, i) => (
+            <li
+              key={`${p.owner}-${p.name}-${i}`}
+              className="flex gap-3 rounded border border-sys-drainage/40 bg-sys-drainage/10 px-3 py-2 text-sm"
+            >
+              <span className="shrink-0 rounded bg-sys-drainage/15 px-1.5 py-0.5 text-xs font-medium text-sys-drainage">
+                未接続
+              </span>
+              <span>
+                {p.owner}
+                <span className="ml-2 font-mono text-xs text-ink-muted">
+                  {p.name} @ ({p.position_mm[0].toFixed(0)}, {p.position_mm[1].toFixed(0)}
+                  , {p.position_mm[2].toFixed(0)})
+                </span>
+              </span>
+            </li>
+          ))}
+          {data.skipped.map((id) => (
+            <li
+              key={id}
+              className="flex gap-3 rounded border border-sys-fire/40 bg-sys-fire/10 px-3 py-2 text-sm"
+            >
+              <span className="shrink-0 rounded bg-sys-fire/15 px-1.5 py-0.5 text-xs font-medium text-sys-fire">
+                部品未解決
+              </span>
+              <span className="font-mono text-xs">{id}</span>
             </li>
           ))}
         </ul>

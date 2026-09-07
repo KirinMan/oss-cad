@@ -344,16 +344,53 @@ impl Database {
         Ok(id)
     }
 
+    /// Inserts a domain-defined object: an opaque `{type_id, data}` bag the
+    /// core stores and round-trips without interpreting.
+    ///
+    /// This is the seam a domain layer builds on instead of touching the
+    /// core's internals (`docs/03-data-model.md` §3.2, CLAUDE.md rule 1): the
+    /// core knows there is *a* type id and *some* JSON, never what either one
+    /// means. Unlike an entity, a custom object is not owned by a block record
+    /// — it is data referenced by id, not something drawn directly — so
+    /// `owner` is free-form and may be `None`.
+    pub fn insert_custom(
+        &mut self,
+        owner: Option<ObjectId>,
+        type_id: impl Into<String>,
+        data: serde_json::Value,
+    ) -> Result<ObjectId> {
+        if let Some(owner) = owner
+            && !self.objects.contains_key(&owner)
+        {
+            return Err(DbError::NoSuchObject(owner));
+        }
+        let id = self.ids.next_id();
+        self.objects.insert(
+            id,
+            Object {
+                id,
+                owner,
+                kind: ObjectKind::Custom {
+                    type_id: type_id.into(),
+                    data,
+                },
+                xdata: XDataMap::default(),
+                ext_dict: None,
+            },
+        );
+        Ok(id)
+    }
+
     /// Removes an object and detaches it from its owning block record.
     pub fn remove_object(&mut self, id: ObjectId) -> Result<Object> {
         let obj = self
             .objects
             .shift_remove(&id)
             .ok_or(DbError::NoSuchObject(id))?;
-        if let Some(owner) = obj.owner {
-            if let Some(block) = self.tables.blocks.get_mut(owner) {
-                block.entities.retain(|e| *e != id);
-            }
+        if let Some(owner) = obj.owner
+            && let Some(block) = self.tables.blocks.get_mut(owner)
+        {
+            block.entities.retain(|e| *e != id);
         }
         Ok(obj)
     }
@@ -366,13 +403,12 @@ impl Database {
         let owner = obj.owner;
         self.ids.observe(id);
         self.objects.insert(id, obj);
-        if let Some(owner) = owner {
-            if let Some(block) = self.tables.blocks.get_mut(owner) {
-                if !block.entities.contains(&id) {
-                    let at = index_in_owner.unwrap_or(block.entities.len());
-                    block.entities.insert(at.min(block.entities.len()), id);
-                }
-            }
+        if let Some(owner) = owner
+            && let Some(block) = self.tables.blocks.get_mut(owner)
+            && !block.entities.contains(&id)
+        {
+            let at = index_in_owner.unwrap_or(block.entities.len());
+            block.entities.insert(at.min(block.entities.len()), id);
         }
         Ok(())
     }
@@ -489,6 +525,29 @@ impl Database {
         id
     }
 
+    /// Ensures a paper-space layout exists and returns its id. Mirrors
+    /// `ensure_block`, but with `BlockKind::PaperSpace` — a layout is a block
+    /// record like any other, just one whose entities are viewports and
+    /// sheet annotation rather than model geometry.
+    pub fn ensure_paper_space(&mut self, name: &str) -> ObjectId {
+        if let Some(id) = self.tables.blocks.id_of(name) {
+            return id;
+        }
+        let id = self.ids.next_id();
+        self.tables.blocks.insert(
+            id,
+            BlockRecord {
+                name: name.to_owned(),
+                base_point: Point3::ORIGIN,
+                kind: BlockKind::PaperSpace,
+                entities: Vec::new(),
+                xref: None,
+                description: String::new(),
+            },
+        );
+        id
+    }
+
     /// Restores derived state after loading: name indexes, and the id counter,
     /// which must not hand out an id the file already uses.
     pub fn rehydrate(&mut self) {
@@ -525,14 +584,14 @@ impl Database {
                         what: "owner space",
                     });
                 }
-                if let Geometry::BlockRef(b) = &e.geom {
-                    if self.tables.blocks.get(b.block).is_none() {
-                        problems.push(DbError::DanglingReference {
-                            from: id,
-                            to: b.block,
-                            what: "block definition",
-                        });
-                    }
+                if let Geometry::BlockRef(b) = &e.geom
+                    && self.tables.blocks.get(b.block).is_none()
+                {
+                    problems.push(DbError::DanglingReference {
+                        from: id,
+                        to: b.block,
+                        what: "block definition",
+                    });
                 }
             }
             for (app, rec) in &obj.xdata.records {
@@ -582,6 +641,68 @@ impl Database {
             bounds: self.space_bounds(self.model_space),
         }
     }
+
+    /// Takes the document apart into the pieces a container format stores
+    /// separately.
+    ///
+    /// A `.odc` file is not one blob — objects are chunked so a large drawing
+    /// can be read incrementally, and tables and schemas live in their own
+    /// entries so a tool can read a drawing's layer list without parsing its
+    /// geometry (`docs/03-data-model.md` §5). That requires reaching the parts
+    /// individually, and this is the seam for it: writers get the pieces, and
+    /// the invariants stay inside this module rather than being re-derived by
+    /// every format.
+    #[must_use]
+    pub fn to_snapshot(&self) -> DatabaseSnapshot {
+        DatabaseSnapshot {
+            header: self.header.clone(),
+            tables: self.tables.clone(),
+            objects: self.objects.values().cloned().collect(),
+            ids: self.ids.clone(),
+            schemas: self.schemas.clone(),
+            named_dict: self.named_dict,
+            model_space: self.model_space,
+            preserved: self.preserved.clone(),
+        }
+    }
+
+    /// Rebuilds a document from its parts, restoring the derived state
+    /// [`Database::rehydrate`] owns — name indexes and the id counter.
+    ///
+    /// Object order is preserved, because it is the draw order.
+    #[must_use]
+    pub fn from_snapshot(snapshot: DatabaseSnapshot) -> Self {
+        let mut objects = IndexMap::with_capacity(snapshot.objects.len());
+        for object in snapshot.objects {
+            objects.insert(object.id, object);
+        }
+        let mut db = Self {
+            header: snapshot.header,
+            tables: snapshot.tables,
+            objects,
+            ids: snapshot.ids,
+            schemas: snapshot.schemas,
+            named_dict: snapshot.named_dict,
+            model_space: snapshot.model_space,
+            preserved: snapshot.preserved,
+        };
+        db.rehydrate();
+        db
+    }
+}
+
+/// A document taken apart for storage. See [`Database::to_snapshot`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseSnapshot {
+    pub header: HeaderVars,
+    pub tables: SymbolTables,
+    /// In draw order.
+    pub objects: Vec<Object>,
+    pub ids: IdGenerator,
+    pub schemas: IndexMap<AppId, XDataSchema>,
+    pub named_dict: ObjectId,
+    pub model_space: ObjectId,
+    pub preserved: Vec<PreservedBlob>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -634,6 +755,52 @@ mod tests {
         assert_eq!(db.entities_in(db.model_space()).count(), 1);
         assert_eq!(db.draw_index(id), Some(0));
         assert!(db.validate().is_empty());
+    }
+
+    #[test]
+    fn a_custom_object_round_trips_without_the_core_interpreting_it() {
+        let mut db = Database::new(ActorId::SYSTEM);
+        let payload = serde_json::json!({"kind": "example", "value": 42});
+        let id = db
+            .insert_custom(None, "org.example.thing", payload.clone())
+            .expect("inserts");
+
+        let obj = db.object(id).expect("exists");
+        assert_eq!(obj.owner, None, "unowned, since it draws nothing itself");
+        match &obj.kind {
+            ObjectKind::Custom { type_id, data } => {
+                assert_eq!(type_id, "org.example.thing");
+                assert_eq!(data, &payload);
+            }
+            other => panic!("expected Custom, got {other:?}"),
+        }
+        assert!(db.validate().is_empty());
+
+        let json = serde_json::to_string(&db).expect("serialises");
+        let back: Database = serde_json::from_str(&json).expect("deserialises");
+        assert_eq!(back.object(id).map(|o| &o.kind), Some(&obj.kind));
+    }
+
+    #[test]
+    fn a_custom_object_can_be_owned_by_another_object() {
+        let mut db = Database::new(ActorId::SYSTEM);
+        let owner = db
+            .insert_custom(None, "org.example.group", serde_json::json!({}))
+            .expect("inserts");
+        let child = db
+            .insert_custom(Some(owner), "org.example.member", serde_json::json!({}))
+            .expect("inserts");
+        assert_eq!(db.object(child).and_then(|o| o.owner), Some(owner));
+    }
+
+    #[test]
+    fn a_custom_object_cannot_claim_a_nonexistent_owner() {
+        let mut db = Database::new(ActorId::SYSTEM);
+        let bogus = ObjectId::new(ActorId(77), 77);
+        assert!(matches!(
+            db.insert_custom(Some(bogus), "org.example.thing", serde_json::json!({})),
+            Err(DbError::NoSuchObject(_))
+        ));
     }
 
     #[test]
@@ -779,6 +946,43 @@ mod tests {
         assert!(back.reserve_id().seq > id.seq);
         assert!(back.tables.layers.by_name("0").is_some());
         assert!(back.validate().is_empty());
+    }
+
+    #[test]
+    fn a_snapshot_round_trips_with_order_and_identity_intact() {
+        let mut db = Database::new(ActorId(5));
+        let layer = db.ensure_layer("M-DUCT-SA");
+        let ids: Vec<ObjectId> = (1..=3)
+            .map(|i| {
+                db.insert_entity(Entity::new(
+                    layer,
+                    db.model_space(),
+                    Geometry::Line {
+                        a: Point3::ORIGIN,
+                        b: Point3::new(f64::from(i) * 1000.0, 0.0, 0.0),
+                    },
+                ))
+                .expect("inserts")
+            })
+            .collect();
+
+        let back = Database::from_snapshot(db.to_snapshot());
+
+        assert_eq!(back.entities().count(), 3);
+        assert_eq!(
+            back.tables
+                .blocks
+                .get(back.model_space())
+                .expect("model space")
+                .entities,
+            ids,
+            "draw order must survive"
+        );
+        assert!(back.tables.layers.by_name("m-duct-sa").is_some());
+        assert!(back.validate().is_empty());
+        // The id counter came with it, so a reload cannot reissue a live id.
+        let mut back = back;
+        assert!(back.reserve_id().seq > ids.last().expect("ids").seq);
     }
 
     #[test]

@@ -33,6 +33,7 @@
 //! ```
 
 pub mod database;
+pub mod edit;
 pub mod entity;
 pub mod error;
 pub mod id;
@@ -42,12 +43,13 @@ pub mod transaction;
 pub mod xdata;
 
 pub use database::{
-    Database, DbStats, Dictionary, GeoRef, HeaderVars, MODEL_SPACE, Object, ObjectKind,
-    PAPER_SPACE, PreservedBlob, Units,
+    Database, DatabaseSnapshot, DbStats, Dictionary, GeoRef, HeaderVars, MODEL_SPACE, Object,
+    ObjectKind, PAPER_SPACE, PreservedBlob, Units,
 };
+pub use edit::{Command, CommandOutcome};
 pub use entity::{
-    AttributeValue, BlockRef, Entity, Geometry, HAlign, Hatch, HatchPattern, MTextEntity,
-    ProxyGraphic, TextEntity, TextFlow, VAlign,
+    AttributeValue, BlockRef, DimensionEntity, Entity, Geometry, HAlign, Hatch, HatchPattern,
+    MTextEntity, ProxyGraphic, TextEntity, TextFlow, VAlign, ViewportEntity,
 };
 pub use error::{DbError, Result};
 pub use id::{ActorId, IdGenerator, ObjectId};

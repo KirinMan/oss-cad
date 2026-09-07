@@ -1,11 +1,25 @@
 [workspace]
 resolver = "3"
-members = ["crates/od-geom2d", "crates/od-geom3d", "crates/od-core", "crates/od-io-dxf", "crates/od-parts", "crates/od-cli"]
+members = [
+    "crates/od-geom2d",
+    "crates/od-geom3d",
+    "crates/od-core",
+    "crates/od-index",
+    "crates/od-io-dxf",
+    "crates/od-io-odc",
+    "crates/od-domain-mep",
+    "crates/od-io-svg",
+    "crates/od-io-sxf",
+    "crates/od-parts",
+    "crates/od-script",
+    "crates/od-solver",
+    "crates/od-cli",
+]
 
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "Apache-2.0"
 repository = "https://github.com/KirinMan/oss-cad"
 authors = ["The OpenDraft Authors"]
@@ -14,8 +28,14 @@ authors = ["The OpenDraft Authors"]
 od-geom2d = { path = "crates/od-geom2d", version = "0.0.1" }
 od-geom3d = { path = "crates/od-geom3d", version = "0.0.1" }
 od-core = { path = "crates/od-core", version = "0.0.1" }
+od-index = { path = "crates/od-index", version = "0.0.1" }
 od-io-dxf = { path = "crates/od-io-dxf", version = "0.0.1" }
+od-io-odc = { path = "crates/od-io-odc", version = "0.0.1" }
+od-domain-mep = { path = "crates/od-domain-mep", version = "0.0.1" }
+od-io-svg = { path = "crates/od-io-svg", version = "0.0.1" }
+od-io-sxf = { path = "crates/od-io-sxf", version = "0.0.1" }
 od-parts = { path = "crates/od-parts", version = "0.0.1" }
+od-script = { path = "crates/od-script", version = "0.0.1" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
