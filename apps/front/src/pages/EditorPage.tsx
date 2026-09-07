@@ -123,6 +123,9 @@ const TOOL_ALIASES: Record<string, Tool> = {
 /** `x,y` in world millimetres — the command line's point-entry syntax. */
 const POINT_PATTERN = /^(-?[\d.]+)\s*,\s*(-?[\d.]+)$/;
 
+/** Below this distance from the reference point, an angle is meaningless — polar tracking stays off rather than guessing one. */
+const MIN_POLAR_DISTANCE_MM = 1;
+
 interface DragState {
   downClient: { x: number; y: number };
   downWorld: WorldPoint;
@@ -140,6 +143,15 @@ export function EditorPage() {
   const [layer, setLayer] = useState(DEFAULT_LAYER);
   const [error, setError] = useState<string | null>(null);
   const [commandInput, setCommandInput] = useState('');
+
+  // ── Polar tracking ──────────────────────────────────────────────────────
+  // A fallback for when object snap finds nothing: near a multiple of the
+  // increment away from whatever point a tool is currently measuring from,
+  // the cursor snaps onto that exact angle rather than wherever the pixel
+  // grid happened to land. Object snap always wins when both apply — an
+  // existing point in the drawing is a stronger signal than an angle guess.
+  const [polarEnabled, setPolarEnabled] = useState(true);
+  const [polarIncrementDeg, setPolarIncrementDeg] = useState('15');
   const containerRef = useRef<HTMLDivElement>(null);
 
   // ── Circle / arc / polyline ────────────────────────────────────────────
@@ -880,6 +892,8 @@ export function EditorPage() {
     world: WorldPoint;
     /** Set when this snap matched a component's port, not just geometry. */
     portElevation?: number;
+    /** Set when this snap came from polar tracking, not object snap. */
+    polar?: boolean;
   } | null>(null);
   const [mepPathScreen, setMepPathScreen] = useState<{ left: number; top: number }[]>([]);
   const [polylinePathScreen, setPolylinePathScreen] = useState<
@@ -907,6 +921,10 @@ export function EditorPage() {
   const [gripRubberBand, setGripRubberBand] = useState<
     { from: { left: number; top: number }; to: { left: number; top: number } }[]
   >([]);
+  const [polarGuide, setPolarGuide] = useState<{
+    from: { left: number; top: number };
+    to: { left: number; top: number };
+  } | null>(null);
 
   useEffect(() => {
     // The `.current` read here (unused beyond gating) is what tells the
@@ -928,6 +946,7 @@ export function EditorPage() {
       setGripScreens([]);
       setGripRubberBand([]);
       setDimPathScreen([]);
+      setPolarGuide(null);
       return;
     }
 
@@ -954,6 +973,7 @@ export function EditorPage() {
       top: number;
       world: WorldPoint;
       portElevation?: number;
+      polar?: boolean;
     } | null = null;
     if (hoverPoint && wantsSnap()) {
       const thresholdWorld = SNAP_RADIUS_PX / fit.scale;
@@ -985,7 +1005,56 @@ export function EditorPage() {
             ...(best.z !== undefined ? { portElevation: best.z } : {}),
           }
         : null;
+
+      // Object snap always wins; polar tracking only ever fills in when it
+      // found nothing. The reference point is whatever the active tool is
+      // currently measuring from — the same point its own rubber-band
+      // preview already draws from.
+      if (!snap && polarEnabled) {
+        const reference =
+          tool === 'line' || tool === 'circle'
+            ? pendingStart
+            : tool === 'arc'
+              ? (arcPoints[arcPoints.length - 1] ?? null)
+              : tool === 'polyline'
+                ? (polylinePoints[polylinePoints.length - 1] ?? null)
+                : tool === 'dimension'
+                  ? (dimPoints[dimPoints.length - 1] ?? null)
+                  : tool === 'mep'
+                    ? (mepPath[mepPath.length - 1] ?? null)
+                    : null;
+        if (reference) {
+          const dx = hoverPoint.x - reference.x;
+          const dy = hoverPoint.y - reference.y;
+          const dist = Math.hypot(dx, dy);
+          const incrementRad = ((Number(polarIncrementDeg) || 15) * Math.PI) / 180;
+          // Within ~2° of a multiple of the increment counts as "on" that
+          // angle — narrow enough that the exact angle stays intentional, a
+          // fixed angular tolerance rather than a screen-pixel one since the
+          // whole point is precision independent of zoom level.
+          const angleToleranceRad = (2 * Math.PI) / 180;
+          if (dist > MIN_POLAR_DISTANCE_MM) {
+            const angle = Math.atan2(dy, dx);
+            const nearest = Math.round(angle / incrementRad) * incrementRad;
+            const angularDiff = Math.abs(
+              Math.atan2(Math.sin(angle - nearest), Math.cos(angle - nearest)),
+            );
+            if (angularDiff <= angleToleranceRad) {
+              const world = {
+                x: reference.x + dist * Math.cos(nearest),
+                y: reference.y + dist * Math.sin(nearest),
+              };
+              snap = { ...toScreen(fit, world.x, world.y), world, polar: true };
+              setPolarGuide({
+                from: toScreen(fit, reference.x, reference.y),
+                to: toScreen(fit, world.x, world.y),
+              });
+            }
+          }
+        }
+      }
     }
+    if (!snap?.polar) setPolarGuide(null);
     setSnapPoint(snap);
 
     // The path preview includes a rubber-band segment to wherever the next
@@ -1116,6 +1185,8 @@ export function EditorPage() {
     gripDrag,
     textPosition,
     dimPoints,
+    polarEnabled,
+    polarIncrementDeg,
   ]);
 
   const canRotate = selection.length > 0 && selection.every((s) => s.kind === 'blockref');
@@ -1476,9 +1547,32 @@ export function EditorPage() {
               <span className="text-sys-hydronic">
                 {snapPoint.portElevation !== undefined
                   ? '接続口にスナップ中'
-                  : 'スナップ中'}{' '}
+                  : snapPoint.polar
+                    ? `極トラッキング中 (${polarIncrementDeg}°)`
+                    : 'スナップ中'}{' '}
                 ({snapPoint.world.x.toFixed(0)}, {snapPoint.world.y.toFixed(0)})
               </span>
+            )}
+
+            <label className="flex items-center gap-1 text-ink-muted">
+              <input
+                type="checkbox"
+                checked={polarEnabled}
+                onChange={(e) => setPolarEnabled(e.target.checked)}
+              />
+              極トラッキング
+            </label>
+            {polarEnabled && (
+              <select
+                value={polarIncrementDeg}
+                onChange={(e) => setPolarIncrementDeg(e.target.value)}
+                className="rounded border border-rule bg-paper px-1 py-0.5"
+              >
+                <option value="90">90°</option>
+                <option value="45">45°</option>
+                <option value="30">30°</option>
+                <option value="15">15°</option>
+              </select>
             )}
 
             <button
@@ -1732,6 +1826,22 @@ export function EditorPage() {
                 className="pointer-events-none absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 border-sys-hydronic bg-paper-raised"
                 style={{ left: snapPoint.left, top: snapPoint.top }}
               />
+            )}
+            {polarGuide && (
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                aria-hidden
+              >
+                <line
+                  x1={polarGuide.from.left}
+                  y1={polarGuide.from.top}
+                  x2={polarGuide.to.left}
+                  y2={polarGuide.to.top}
+                  className="stroke-sys-hydronic"
+                  strokeWidth={1}
+                  strokeDasharray="6 4"
+                />
+              </svg>
             )}
             {mepPathScreen.length > 0 && (
               // Our own UI chrome, not the drawing's content — safe to draw
