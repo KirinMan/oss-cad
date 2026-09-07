@@ -518,14 +518,14 @@ impl Geometry {
                 // once `normal` is known to be non-degenerate — a circle with
                 // a zero normal is already malformed, and reporting only the
                 // centre for it is the honest answer, not a special case.
-                if let Some(z) = normal.normalized() {
-                    if let Some(x) = z.any_perpendicular() {
-                        let y = z.cross(x);
-                        points.push(*center + x * *radius);
-                        points.push(*center - x * *radius);
-                        points.push(*center + y * *radius);
-                        points.push(*center - y * *radius);
-                    }
+                if let Some(z) = normal.normalized()
+                    && let Some(x) = z.any_perpendicular()
+                {
+                    let y = z.cross(x);
+                    points.push(*center + x * *radius);
+                    points.push(*center - x * *radius);
+                    points.push(*center + y * *radius);
+                    points.push(*center - y * *radius);
                 }
                 points
             }

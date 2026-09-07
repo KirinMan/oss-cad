@@ -10,13 +10,14 @@ members = [
     "crates/od-domain-mep",
     "crates/od-io-svg",
     "crates/od-parts",
+    "crates/od-solver",
     "crates/od-cli",
 ]
 
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "Apache-2.0"
 repository = "https://github.com/KirinMan/oss-cad"
 authors = ["The OpenDraft Authors"]

@@ -146,10 +146,10 @@ impl<T> RTree<T> {
         match node {
             Node::Leaf { entries, .. } => {
                 for &i in entries {
-                    if let Some(entry) = self.entries.get(i) {
-                        if entry.bounds.intersects(window) {
-                            out.push(entry);
-                        }
+                    if let Some(entry) = self.entries.get(i)
+                        && entry.bounds.intersects(window)
+                    {
+                        out.push(entry);
                     }
                 }
             }
@@ -184,12 +184,11 @@ impl<T> RTree<T> {
 
         while let Some(best) = pop_min(&mut frontier) {
             let (node_distance, node) = best;
-            if found.len() >= count {
-                if let Some(worst) = found.last() {
-                    if node_distance > worst.0 {
-                        break;
-                    }
-                }
+            if found.len() >= count
+                && let Some(worst) = found.last()
+                && node_distance > worst.0
+            {
+                break;
             }
             match node {
                 Node::Leaf { entries, .. } => {

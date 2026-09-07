@@ -175,12 +175,12 @@ impl Polyline2 {
                 }
             }
         }
-        if self.closed && out.len() > 1 {
-            if let (Some(first), Some(last)) = (out.first().copied(), out.last().copied()) {
-                if last.coincides_with(first) {
-                    out.pop();
-                }
-            }
+        if self.closed
+            && out.len() > 1
+            && let (Some(first), Some(last)) = (out.first().copied(), out.last().copied())
+            && last.coincides_with(first)
+        {
+            out.pop();
         }
         out
     }

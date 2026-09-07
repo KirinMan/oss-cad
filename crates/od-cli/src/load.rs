@@ -105,10 +105,10 @@ pub fn load(path: &Path) -> Result<(Database, LoadOutcome)> {
 fn unsupported_entity_types(db: &Database) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for (_, entity) in db.entities() {
-        if let od_core::Geometry::Unsupported { source_type, .. } = &entity.geom {
-            if !out.iter().any(|t| t == source_type) {
-                out.push(source_type.clone());
-            }
+        if let od_core::Geometry::Unsupported { source_type, .. } = &entity.geom
+            && !out.iter().any(|t| t == source_type)
+        {
+            out.push(source_type.clone());
         }
     }
     out
