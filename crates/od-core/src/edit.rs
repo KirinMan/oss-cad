@@ -11,7 +11,7 @@
 //! since every caller already goes through [`Document::execute`] rather than
 //! constructing a variant's fields directly into a transaction.
 
-use crate::entity::{DimensionEntity, Entity, Geometry, TextEntity};
+use crate::entity::{BlockRef, DimensionEntity, Entity, Geometry, TextEntity};
 use crate::error::DbError;
 use crate::id::ObjectId;
 use crate::transaction::Transaction;
@@ -115,6 +115,31 @@ pub enum Command {
         offset: f64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text_override: Option<String>,
+    },
+    /// Groups `ids` into a new block definition named `name`, replacing them
+    /// in model space with a single [`crate::entity::BlockRef`] at
+    /// `base_point`, on `layer`. Each entity's geometry is stored relative
+    /// to `base_point` (the block's own local origin — [`Database::ensure_block`]
+    /// always starts one at `Point3::ORIGIN`), so the group renders exactly
+    /// where it visually was; only its identity changes, from loose
+    /// entities to one reference.
+    CreateBlock {
+        name: String,
+        layer: String,
+        base_point: Point3,
+        ids: Vec<ObjectId>,
+    },
+    /// Inserts an existing block definition — one [`CreateBlock`] made, or
+    /// one the source drawing already had — as a new
+    /// [`crate::entity::BlockRef`] on `layer`. Unlike [`Command::AddLine`]'s
+    /// `layer`, `block_name` is never auto-created: inserting a definition
+    /// that does not exist would place nothing, silently.
+    InsertBlock {
+        layer: String,
+        block_name: String,
+        position: Point3,
+        rotation: f64,
+        scale: Vec3,
     },
 }
 
@@ -491,6 +516,101 @@ impl Command {
                         offset: *offset,
                         text_override: text_override.clone(),
                         style,
+                    })),
+                ))?;
+                outcome.created.push(id);
+            }
+            Command::CreateBlock {
+                name,
+                layer,
+                base_point,
+                ids,
+            } => {
+                if ids.is_empty() {
+                    return Err(DbError::InvalidCommand(
+                        "a block needs at least one entity".into(),
+                    ));
+                }
+                // Snapshot first: every id has to resolve and every
+                // geometry has to be translatable before anything is
+                // touched, so a failure partway through never leaves the
+                // selection half-converted (removed from model space with
+                // nothing to show for it).
+                let mut members = Vec::with_capacity(ids.len());
+                for &id in ids {
+                    let entity = tx.db().entity(id).ok_or(DbError::NoSuchObject(id))?;
+                    let (owner_layer, style, visible) =
+                        (entity.layer, entity.style.clone(), entity.visible);
+                    let mut geom = entity.geom.clone();
+                    let rebase = Vec3::new(-base_point.x, -base_point.y, -base_point.z);
+                    if !try_translate(&mut geom, rebase) {
+                        return Err(DbError::UnsupportedEdit {
+                            id,
+                            geometry: geom.type_name().to_owned(),
+                        });
+                    }
+                    members.push((owner_layer, geom, style, visible));
+                }
+
+                let block_id = tx.ensure_block(name);
+                for &id in ids {
+                    tx.remove(id)?;
+                }
+                for (owner_layer, geom, style, visible) in members {
+                    tx.add_entity(Entity {
+                        layer: owner_layer,
+                        geom,
+                        style,
+                        visible,
+                        owner_space: block_id,
+                    })?;
+                }
+
+                let layer_id = tx.ensure_layer(layer);
+                let space = tx.db().model_space();
+                let id = tx.add_entity(Entity::new(
+                    layer_id,
+                    space,
+                    Geometry::BlockRef(Box::new(BlockRef {
+                        block: block_id,
+                        position: *base_point,
+                        scale: Vec3::new(1.0, 1.0, 1.0),
+                        rotation: 0.0,
+                        attributes: Vec::new(),
+                        array: (1, 1),
+                        array_spacing: (0.0, 0.0),
+                    })),
+                ))?;
+                outcome.created.push(id);
+            }
+            Command::InsertBlock {
+                layer,
+                block_name,
+                position,
+                rotation,
+                scale,
+            } => {
+                // Never auto-created, unlike ensure_layer's usual behaviour
+                // for a drawing entity's own layer: a block definition that
+                // does not exist has nothing to insert, so silently
+                // creating an empty one would place nothing rather than
+                // erroring loudly about it.
+                let block_id = tx.db().tables.blocks.id_of(block_name).ok_or_else(|| {
+                    DbError::InvalidCommand(format!("no block named `{block_name}`"))
+                })?;
+                let layer_id = tx.ensure_layer(layer);
+                let space = tx.db().model_space();
+                let id = tx.add_entity(Entity::new(
+                    layer_id,
+                    space,
+                    Geometry::BlockRef(Box::new(BlockRef {
+                        block: block_id,
+                        position: *position,
+                        scale: *scale,
+                        rotation: *rotation,
+                        attributes: Vec::new(),
+                        array: (1, 1),
+                        array_spacing: (0.0, 0.0),
                     })),
                 ))?;
                 outcome.created.push(id);
@@ -1436,6 +1556,154 @@ mod tests {
         assert!(od_geom2d::tol::eq_len(line_a.y, 200.0));
         assert!(od_geom2d::tol::eq_len(line_b.x, 1000.0));
         assert!(od_geom2d::tol::eq_len(line_b.y, 200.0));
+    }
+
+    #[test]
+    fn create_block_groups_entities_and_keeps_their_world_position() {
+        let mut d = doc();
+        let line_id = d
+            .execute(
+                "Draw",
+                &Command::AddLine {
+                    layer: "0".into(),
+                    a: Point3::new(1000.0, 2000.0, 0.0),
+                    b: Point3::new(1500.0, 2000.0, 0.0),
+                },
+            )
+            .expect("commits")
+            .created[0];
+        let circle_id = d
+            .execute(
+                "Draw",
+                &Command::AddCircle {
+                    layer: "0".into(),
+                    center: Point3::new(1250.0, 2200.0, 0.0),
+                    radius: 100.0,
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let outcome = d
+            .execute(
+                "Block",
+                &Command::CreateBlock {
+                    name: "FAN".into(),
+                    layer: "A-EQPT".into(),
+                    base_point: Point3::new(1250.0, 2000.0, 0.0),
+                    ids: vec![line_id, circle_id],
+                },
+            )
+            .expect("commits");
+
+        // The originals are gone, replaced by one BlockRef.
+        assert!(d.db.entity(line_id).is_none());
+        assert!(d.db.entity(circle_id).is_none());
+        assert_eq!(outcome.created.len(), 1);
+        let bref_entity = d.db.entity(outcome.created[0]).expect("exists");
+        let Geometry::BlockRef(bref) = &bref_entity.geom else {
+            panic!("expected a BlockRef, got {:?}", bref_entity.geom);
+        };
+        assert_eq!(bref.position, Point3::new(1250.0, 2000.0, 0.0));
+
+        let block = d.db.tables.blocks.get(bref.block).expect("block exists");
+        assert_eq!(block.name, "FAN");
+        assert_eq!(block.entities.len(), 2);
+
+        // The block's own member geometry is rebased around base_point, but
+        // the whole thing still resolves to the same world position it had
+        // before — entity_bounds() walks through the BlockRef exactly the
+        // way rendering does.
+        let world_bounds = d.db.entity_bounds(outcome.created[0]);
+        assert!(od_geom2d::tol::eq_len(world_bounds.min.x, 1000.0));
+        assert!(od_geom2d::tol::eq_len(world_bounds.max.x, 1500.0));
+    }
+
+    #[test]
+    fn create_block_rejects_an_empty_selection() {
+        let mut d = doc();
+        let err = d
+            .execute(
+                "Block",
+                &Command::CreateBlock {
+                    name: "EMPTY".into(),
+                    layer: "0".into(),
+                    base_point: Point3::ORIGIN,
+                    ids: vec![],
+                },
+            )
+            .expect_err("a block needs at least one entity");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn insert_block_places_a_new_reference_to_an_existing_definition() {
+        let mut d = doc();
+        let line_id = d
+            .execute(
+                "Draw",
+                &Command::AddLine {
+                    layer: "0".into(),
+                    a: Point3::ORIGIN,
+                    b: Point3::new(500.0, 0.0, 0.0),
+                },
+            )
+            .expect("commits")
+            .created[0];
+        let first_ref = d
+            .execute(
+                "Block",
+                &Command::CreateBlock {
+                    name: "SYMBOL".into(),
+                    layer: "0".into(),
+                    base_point: Point3::ORIGIN,
+                    ids: vec![line_id],
+                },
+            )
+            .expect("commits")
+            .created[0];
+
+        let outcome = d
+            .execute(
+                "Insert",
+                &Command::InsertBlock {
+                    layer: "0".into(),
+                    block_name: "SYMBOL".into(),
+                    position: Point3::new(5000.0, 5000.0, 0.0),
+                    rotation: 0.0,
+                    scale: Vec3::new(1.0, 1.0, 1.0),
+                },
+            )
+            .expect("commits");
+
+        let second_ref = outcome.created[0];
+        assert_ne!(first_ref, second_ref);
+        let Geometry::BlockRef(a) = &d.db.entity(first_ref).expect("exists").geom else {
+            panic!("expected BlockRef");
+        };
+        let Geometry::BlockRef(b) = &d.db.entity(second_ref).expect("exists").geom else {
+            panic!("expected BlockRef");
+        };
+        assert_eq!(a.block, b.block, "both reference the same definition");
+        assert_eq!(b.position, Point3::new(5000.0, 5000.0, 0.0));
+    }
+
+    #[test]
+    fn insert_block_rejects_a_name_that_does_not_exist() {
+        let mut d = doc();
+        let err = d
+            .execute(
+                "Insert",
+                &Command::InsertBlock {
+                    layer: "0".into(),
+                    block_name: "NO-SUCH-BLOCK".into(),
+                    position: Point3::ORIGIN,
+                    rotation: 0.0,
+                    scale: Vec3::new(1.0, 1.0, 1.0),
+                },
+            )
+            .expect_err("cannot insert a block that was never defined");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
     }
 
     #[test]

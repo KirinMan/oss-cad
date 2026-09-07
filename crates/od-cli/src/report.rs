@@ -66,6 +66,10 @@ pub fn inspection(db: &Database, outcome: &LoadOutcome, path: &Path, json: bool)
             summary: Summary<'a>,
             entities_by_type: indexmap::IndexMap<String, usize>,
             layer_names: Vec<String>,
+            /// Ordinary, insertable block definitions — not model/paper
+            /// space, which are `BlockRecord`s too but not ones `od mep
+            /// place`-style "insert this" tooling should ever offer up.
+            block_names: Vec<String>,
         }
         emit(&Detailed {
             summary: summarise(db, outcome, path),
@@ -75,6 +79,13 @@ pub fn inspection(db: &Database, outcome: &LoadOutcome, path: &Path, json: bool)
                 .layers
                 .iter()
                 .map(|(_, l)| l.name.clone())
+                .collect(),
+            block_names: db
+                .tables
+                .blocks
+                .iter()
+                .filter(|(_, b)| b.kind == od_core::BlockKind::Definition)
+                .map(|(_, b)| b.name.clone())
                 .collect(),
         });
         return;

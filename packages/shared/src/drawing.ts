@@ -41,6 +41,8 @@ export const drawingSummarySchema = z.object({
 export const inspectionSchema = drawingSummarySchema.extend({
   entities_by_type: z.record(z.string(), z.number().int().nonnegative()),
   layer_names: z.array(z.string()),
+  /** Ordinary, insertable block definitions — not model/paper space. */
+  block_names: z.array(z.string()),
 });
 
 export const conversionSchema = drawingSummarySchema.extend({
@@ -166,6 +168,22 @@ export const commandSchema = z.discriminatedUnion('kind', [
     offset: z.number(),
     /** Overrides the displayed measurement entirely when given. */
     text_override: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal('create_block'),
+    name: z.string(),
+    layer: z.string(),
+    base_point: point3Schema,
+    ids: z.array(z.string()).min(1),
+  }),
+  z.object({
+    kind: z.literal('insert_block'),
+    layer: z.string(),
+    block_name: z.string(),
+    position: point3Schema,
+    /** Radians, counter-clockwise. */
+    rotation: z.number(),
+    scale: point3Schema,
   }),
 ]);
 export type Command = z.infer<typeof commandSchema>;
