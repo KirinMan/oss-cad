@@ -29,6 +29,15 @@
 //! to. That is real, substantial work of its own (a permission model, a
 //! capability grant UI, `wasmtime` component linking) — not attempted here.
 //!
+//! Concretely, `run` bounds CPU time spent in any *single* loop (see
+//! [`MAX_LOOP_ITERATIONS`]) but nothing bounds memory: a script that
+//! allocates a huge string or array in one native call — `"x".repeat(1e9)`
+//! needs no loop at all — is not caught by anything in this crate.
+//! `boa_engine` 0.21 has no heap-size limit to set. A caller exposing this to
+//! genuinely untrusted scripts (as opposed to a trusted user's own
+//! automation) needs an OS-level memory limit around the process running
+//! it — a deployment concern, not something addressable inside this crate.
+//!
 //! `run` takes the `Document` by value rather than `&mut` and hands it back
 //! alongside the outcome. `boa_engine`'s native functions are reachable from
 //! a garbage-collected JS object that can, in principle, outlive any
