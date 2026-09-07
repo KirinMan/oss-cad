@@ -54,7 +54,7 @@ interface Snapshot {
   viewBox: [number, number, number, number];
 }
 
-type Tool = 'line' | 'circle' | 'arc' | 'polyline' | 'select' | 'mep' | 'place';
+type Tool = 'line' | 'circle' | 'arc' | 'polyline' | 'text' | 'select' | 'mep' | 'place';
 type WorldPoint = { x: number; y: number };
 type ProfileKind = 'rect' | 'round';
 
@@ -116,6 +116,14 @@ export function EditorPage() {
   // container keeps feeding this drag the same live snapPoint every other
   // draw tool already gets, for free.
   const [gripDrag, setGripDrag] = useState<{ index: number } | null>(null);
+
+  // ── Text ────────────────────────────────────────────────────────────────
+  // A click places the position and opens the settings panel; the entity
+  // itself isn't drawn until 配置 is pressed, since there's nothing to draw
+  // with an empty string.
+  const [textPosition, setTextPosition] = useState<WorldPoint | null>(null);
+  const [textValue, setTextValue] = useState('');
+  const [textHeight, setTextHeight] = useState('250');
 
   // ── MEP routing ────────────────────────────────────────────────────────
   const [mepPath, setMepPath] = useState<WorldPoint[]>([]);
@@ -182,6 +190,8 @@ export function EditorPage() {
     setMirrorArmed(false);
     setMirrorPoints([]);
     setGripDrag(null);
+    setTextPosition(null);
+    setTextValue('');
   }
 
   const open = useMutation({
@@ -295,6 +305,7 @@ export function EditorPage() {
       tool === 'circle' ||
       tool === 'arc' ||
       tool === 'polyline' ||
+      tool === 'text' ||
       tool === 'mep' ||
       tool === 'place' ||
       (tool === 'select' && (drag?.moved === true || mirrorArmed || gripDrag !== null))
@@ -450,6 +461,13 @@ export function EditorPage() {
       return;
     }
 
+    if (tool === 'text') {
+      // Clicking again before 配置 just relocates the pending text, rather
+      // than starting a second one — there is only ever one point to place.
+      setTextPosition(point);
+      return;
+    }
+
     if (tool === 'mep') {
       // Starting a run on a port: carry its height into the elevation field
       // rather than making the user look it up and type it — the whole run
@@ -492,6 +510,22 @@ export function EditorPage() {
       closed: polylineClosed,
     });
     setPolylinePoints([]);
+  }
+
+  function placeText() {
+    if (!textPosition || edit.isPending) return;
+    const height = Number(textHeight);
+    if (!textValue.trim() || !Number.isFinite(height) || height <= 0) return;
+    edit.mutate({
+      kind: 'add_text',
+      layer,
+      position: { x: textPosition.x, y: textPosition.y, z: 0 },
+      text: textValue,
+      height,
+      rotation: 0,
+    });
+    setTextPosition(null);
+    setTextValue('');
   }
 
   function onCanvasPointerDown(e: React.PointerEvent) {
@@ -692,7 +726,8 @@ export function EditorPage() {
       return;
     }
 
-    setMarker(pendingStart ? toScreen(fit, pendingStart.x, pendingStart.y) : null);
+    const markerWorld = pendingStart ?? (tool === 'text' ? textPosition : null);
+    setMarker(markerWorld ? toScreen(fit, markerWorld.x, markerWorld.y) : null);
 
     const boxes = selection.map((hit): Box => {
       const [minX, minY, , maxX, maxY] = hit.bounds_mm;
@@ -865,6 +900,7 @@ export function EditorPage() {
     mirrorArmed,
     mirrorPoints,
     gripDrag,
+    textPosition,
   ]);
 
   const canRotate = selection.length > 0 && selection.every((s) => s.kind === 'blockref');
@@ -935,6 +971,9 @@ export function EditorPage() {
                 onClick={() => switchTool('polyline')}
               >
                 ポリライン
+              </ToolButton>
+              <ToolButton active={tool === 'text'} onClick={() => switchTool('text')}>
+                文字
               </ToolButton>
               <ToolButton active={tool === 'select'} onClick={() => switchTool('select')}>
                 選択
@@ -1012,6 +1051,10 @@ export function EditorPage() {
                   確定
                 </button>
               </>
+            )}
+
+            {tool === 'text' && (
+              <span>{textPosition ? '文字を入力して配置' : '配置位置をクリック'}</span>
             )}
 
             {tool === 'select' && mirrorArmed && (
@@ -1169,6 +1212,38 @@ export function EditorPage() {
               <span>処理中…</span>
             )}
           </div>
+
+          {tool === 'text' && textPosition && (
+            <div className="flex flex-wrap items-end gap-3 rounded border border-rule bg-paper-raised px-3 py-2 text-xs">
+              <label className="flex flex-col gap-1">
+                文字
+                <input
+                  type="text"
+                  value={textValue}
+                  onChange={(e) => setTextValue(e.target.value)}
+                  placeholder="M-DUCT-SA"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') placeText();
+                  }}
+                  className="w-48 rounded border border-rule bg-paper px-2 py-1"
+                />
+              </label>
+              <NumberField
+                label="文字高さ mm"
+                value={textHeight}
+                onChange={setTextHeight}
+              />
+              <button
+                type="button"
+                onClick={placeText}
+                disabled={!textValue.trim() || edit.isPending}
+                className="rounded border border-accent bg-accent/10 px-2 py-1 text-ink disabled:opacity-40"
+              >
+                配置
+              </button>
+            </div>
+          )}
 
           {tool === 'mep' && (
             <div className="flex flex-wrap items-end gap-3 rounded border border-rule bg-paper-raised px-3 py-2 text-xs">

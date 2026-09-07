@@ -11,7 +11,7 @@
 //! since every caller already goes through [`Document::execute`] rather than
 //! constructing a variant's fields directly into a transaction.
 
-use crate::entity::{Entity, Geometry};
+use crate::entity::{Entity, Geometry, TextEntity};
 use crate::error::DbError;
 use crate::id::ObjectId;
 use crate::transaction::Transaction;
@@ -88,6 +88,19 @@ pub enum Command {
         id: ObjectId,
         index: usize,
         position: Point3,
+    },
+    /// Draws single-line text on `layer`, in the always-present `standard`
+    /// text style (`Database::new` creates it, the same one DXF's own
+    /// default points at) — choosing a style is a separate feature
+    /// (`docs/06-roadmap.md`'s dimensioning/text work), not part of placing
+    /// text at all. `rotation` is radians, counter-clockwise, matching
+    /// [`crate::entity::TextEntity`]'s own convention.
+    AddText {
+        layer: String,
+        position: Point3,
+        text: String,
+        height: f64,
+        rotation: f64,
     },
 }
 
@@ -391,6 +404,50 @@ impl Command {
                     });
                 }
                 outcome.modified.push(*id);
+            }
+            Command::AddText {
+                layer,
+                position,
+                text,
+                height,
+                rotation,
+            } => {
+                if *height <= 0.0 {
+                    return Err(DbError::InvalidCommand(
+                        "text height must be positive".into(),
+                    ));
+                }
+                // Always the `standard` style: `Database::new` creates one
+                // for every document, so this can never actually miss —
+                // `?` here is just how that guarantee stays honest instead
+                // of an `unwrap` (denied in this crate's production code).
+                let style = tx
+                    .db()
+                    .tables
+                    .text_styles
+                    .id_of("standard")
+                    .ok_or_else(|| {
+                        DbError::InvalidCommand("no `standard` text style in this document".into())
+                    })?;
+                let layer_id = tx.ensure_layer(layer);
+                let space = tx.db().model_space();
+                let id = tx.add_entity(Entity::new(
+                    layer_id,
+                    space,
+                    Geometry::Text(Box::new(TextEntity {
+                        position: *position,
+                        value: text.clone(),
+                        height: *height,
+                        rotation: *rotation,
+                        style,
+                        flow: crate::entity::TextFlow::default(),
+                        h_align: crate::entity::HAlign::default(),
+                        v_align: crate::entity::VAlign::default(),
+                        width_factor: 1.0,
+                        oblique: 0.0,
+                    })),
+                ))?;
+                outcome.created.push(id);
             }
         }
         Ok(outcome)
@@ -1212,6 +1269,55 @@ mod tests {
             )
             .expect_err("a circle has no editable vertices");
         assert!(matches!(err, DbError::UnsupportedEdit { .. }));
+    }
+
+    #[test]
+    fn add_text_draws_in_the_standard_style() {
+        let mut d = doc();
+        let outcome = d
+            .execute(
+                "Draw",
+                &Command::AddText {
+                    layer: "A-NOTE".into(),
+                    position: Point3::new(1000.0, 2000.0, 0.0),
+                    text: "配管平面図".into(),
+                    height: 250.0,
+                    rotation: 0.0,
+                },
+            )
+            .expect("commits");
+        let entity = d.db.entity(outcome.created[0]).expect("exists");
+        let Geometry::Text(t) = &entity.geom else {
+            panic!("expected Text, got {:?}", entity.geom);
+        };
+        assert_eq!(t.value, "配管平面図");
+        assert_eq!(t.position, Point3::new(1000.0, 2000.0, 0.0));
+        assert!(od_geom2d::tol::eq_len(t.height, 250.0));
+        assert_eq!(
+            d.db.tables
+                .text_styles
+                .get(t.style)
+                .map(|s| s.name.as_str()),
+            Some("Standard")
+        );
+    }
+
+    #[test]
+    fn add_text_rejects_a_non_positive_height() {
+        let mut d = doc();
+        let err = d
+            .execute(
+                "Draw",
+                &Command::AddText {
+                    layer: "0".into(),
+                    position: Point3::ORIGIN,
+                    text: "x".into(),
+                    height: 0.0,
+                    rotation: 0.0,
+                },
+            )
+            .expect_err("zero height text is degenerate");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
     }
 
     #[test]
