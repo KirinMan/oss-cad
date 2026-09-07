@@ -74,6 +74,87 @@ pub fn route_geometry(route: &RouteSegment, view: ViewMode) -> Vec<Geometry> {
     }
 }
 
+/// How many segments approximate a round profile's circle — enough to look
+/// smooth at the scale MEP drawings are actually viewed at; not a claim of
+/// mathematical precision.
+const ROUND_SEGMENTS: usize = 24;
+
+/// The third view [`ViewMode`]'s own doc comment names as needing more than
+/// `route_geometry` can produce: a real swept solid, through the
+/// [`od_geom3d::SolidKernel`] `kernel` — generic over any implementation
+/// (ADR-002; this crate never names `od-geom3d-lite` specifically, so
+/// swapping in an OCCT-backed kernel later needs no change here) — rather
+/// than the plan-view outline [`route_geometry`]'s `DoubleLine` gives.
+///
+/// # Errors
+/// [`MepError::UnsupportedProfile`] for [`od_parts::Profile::Oval`] and
+/// [`od_parts::Profile::Terminal`], which have no tessellation yet (crate
+/// docs); [`MepError::Kernel`] if `route.start` and `route.end` coincide (a
+/// zero-length route has no direction to sweep along) or the kernel itself
+/// refuses the sweep.
+pub fn route_solid(
+    route: &RouteSegment,
+    kernel: &mut dyn od_geom3d::SolidKernel,
+) -> Result<od_geom3d::SolidHandle> {
+    let profile = profile_polygon(route.profile)?;
+    let along = route.end - route.start;
+    let frame_at = |origin| {
+        // `Frame3::from_normal` is a pure function of the normal alone, so
+        // calling it twice with the same `along` but different origins
+        // keeps the cross-section's own orientation from twisting along an
+        // otherwise-straight run.
+        od_geom3d::Frame3::from_normal(origin, along).ok_or_else(|| {
+            MepError::Kernel(od_geom3d::KernelError::Degenerate(
+                "a route needs distinct start and end points to sweep along".into(),
+            ))
+        })
+    };
+    let path_frames = vec![frame_at(route.start)?, frame_at(route.end)?];
+    Ok(kernel.sweep(&od_geom3d::SweepRequest {
+        profile,
+        path_frames,
+        capped: true,
+    })?)
+}
+
+/// A profile's outline in its own local XY plane, centred on the
+/// centreline — what [`od_geom3d::SweepRequest::profile`] needs.
+fn profile_polygon(profile: od_parts::Profile) -> Result<Vec<od_core::Point3>> {
+    match profile {
+        od_parts::Profile::Rect { w, h } => {
+            let (hw, hh) = (w / 2.0, h / 2.0);
+            Ok(vec![
+                od_core::Point3::new(-hw, -hh, 0.0),
+                od_core::Point3::new(hw, -hh, 0.0),
+                od_core::Point3::new(hw, hh, 0.0),
+                od_core::Point3::new(-hw, hh, 0.0),
+            ])
+        }
+        od_parts::Profile::Round { d } => {
+            let r = d / 2.0;
+            Ok((0..ROUND_SEGMENTS)
+                .map(|i| {
+                    let t = std::f64::consts::TAU * segment_fraction(i);
+                    od_core::Point3::new(r * t.cos(), r * t.sin(), 0.0)
+                })
+                .collect())
+        }
+        other @ (od_parts::Profile::Oval { .. } | od_parts::Profile::Terminal) => {
+            Err(MepError::UnsupportedProfile(other))
+        }
+    }
+}
+
+/// `i / ROUND_SEGMENTS` without `as`'s silent precision loss (denied
+/// elsewhere in the workspace for the same reason): `ROUND_SEGMENTS` is a
+/// small compile-time constant, so the `u32` round-trip is always exact —
+/// this just makes that a checked fact rather than an assumption.
+fn segment_fraction(i: usize) -> f64 {
+    let i = u32::try_from(i).unwrap_or(0);
+    let n = u32::try_from(ROUND_SEGMENTS).unwrap_or(1);
+    f64::from(i) / f64::from(n)
+}
+
 /// Draws a route into the document: resolves its system to a layer and
 /// colour, derives its geometry, and inserts it as ordinary entities that
 /// `od-io-svg` and `od-io-dxf` already know how to show.
@@ -231,6 +312,110 @@ mod tests {
             start: Point3::ORIGIN,
             end: Point3::new(5000.0, 0.0, 0.0),
         }
+    }
+
+    /// Records the last [`od_geom3d::SweepRequest`] it was asked to sweep,
+    /// rather than actually triangulating anything — `route_solid` only
+    /// needs to prove it built the *request* correctly; whether a kernel
+    /// can turn that into a mesh is `od-geom3d-lite`'s own test suite's
+    /// job, not this crate's (it cannot depend on that crate — ADR-002
+    /// keeps a domain generic over whichever `SolidKernel` a caller picks).
+    #[derive(Debug, Default)]
+    struct RecordingKernel {
+        last_request: Option<od_geom3d::SweepRequest>,
+    }
+
+    impl od_geom3d::SolidKernel for RecordingKernel {
+        fn name(&self) -> &'static str {
+            "recording-test-kernel"
+        }
+        fn sweep(
+            &mut self,
+            req: &od_geom3d::SweepRequest,
+        ) -> od_geom3d::Result<od_geom3d::SolidHandle> {
+            self.last_request = Some(req.clone());
+            Ok(od_geom3d::SolidHandle(1))
+        }
+        fn boolean(
+            &mut self,
+            _op: od_geom3d::BooleanOp,
+            _a: od_geom3d::SolidHandle,
+            _b: od_geom3d::SolidHandle,
+        ) -> od_geom3d::Result<od_geom3d::SolidHandle> {
+            Err(od_geom3d::KernelError::Unsupported("test kernel"))
+        }
+        fn bounds(&self, _solid: od_geom3d::SolidHandle) -> od_geom3d::Result<od_geom3d::Aabb3> {
+            Err(od_geom3d::KernelError::Unsupported("test kernel"))
+        }
+        fn triangulate(
+            &mut self,
+            _solid: od_geom3d::SolidHandle,
+            _sag: f64,
+        ) -> od_geom3d::Result<od_geom3d::MeshHandle> {
+            Err(od_geom3d::KernelError::Unsupported("test kernel"))
+        }
+        fn mesh_data(
+            &self,
+            _mesh: od_geom3d::MeshHandle,
+        ) -> od_geom3d::Result<&od_geom3d::MeshData> {
+            Err(od_geom3d::KernelError::Unsupported("test kernel"))
+        }
+        fn free(&mut self, _solid: od_geom3d::SolidHandle) {}
+    }
+
+    #[test]
+    fn route_solid_sweeps_a_rect_profile_along_the_centreline() {
+        let r = route();
+        let mut kernel = RecordingKernel::default();
+        route_solid(&r, &mut kernel).expect("a straight rect route sweeps");
+        let req = kernel.last_request.expect("sweep was called");
+        assert_eq!(req.profile.len(), 4);
+        assert!(req.capped);
+        assert_eq!(req.path_frames.len(), 2);
+        assert_eq!(req.path_frames[0].origin, r.start);
+        assert_eq!(req.path_frames[1].origin, r.end);
+        // Both ends share the same cross-section orientation, or the swept
+        // solid would twist along an otherwise-straight run.
+        assert_eq!(req.path_frames[0].x_axis(), req.path_frames[1].x_axis());
+        assert_eq!(req.path_frames[0].y_axis(), req.path_frames[1].y_axis());
+    }
+
+    #[test]
+    fn route_solid_tessellates_a_round_profile() {
+        let mut r = route();
+        r.profile = Profile::Round { d: 150.0 };
+        let mut kernel = RecordingKernel::default();
+        route_solid(&r, &mut kernel).expect("a round route sweeps");
+        let req = kernel.last_request.expect("sweep was called");
+        assert_eq!(req.profile.len(), ROUND_SEGMENTS);
+        // Every tessellated point sits exactly on the circle.
+        for p in &req.profile {
+            assert!((p.distance_to(Point3::ORIGIN) - 75.0).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn route_solid_rejects_profiles_with_no_tessellation() {
+        let mut r = route();
+        r.profile = Profile::Oval { w: 400.0, h: 200.0 };
+        let mut kernel = RecordingKernel::default();
+        let err = route_solid(&r, &mut kernel).expect_err("oval has no tessellation yet");
+        assert!(matches!(
+            err,
+            MepError::UnsupportedProfile(Profile::Oval { .. })
+        ));
+    }
+
+    #[test]
+    fn route_solid_rejects_a_zero_length_route() {
+        let mut r = route();
+        r.end = r.start;
+        let mut kernel = RecordingKernel::default();
+        let err = route_solid(&r, &mut kernel).expect_err("nothing to sweep along");
+        assert!(matches!(
+            err,
+            MepError::Kernel(od_geom3d::KernelError::Degenerate(_))
+        ));
     }
 
     #[test]
