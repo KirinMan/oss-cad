@@ -1,0 +1,17 @@
+[package]
+name = "od-io-gltf"
+description = "Writes od-geom3d MeshData to glTF 2.0 binary (.glb) — how a swept solid (od-geom3d-lite) becomes visible in any standard 3D viewer before OpenDraft has one of its own."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+od-geom3d = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

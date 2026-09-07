@@ -143,6 +143,15 @@ pub enum MepError {
         part_id: String,
         reason: String,
     },
+    #[error(transparent)]
+    Kernel(#[from] od_geom3d::KernelError),
+    /// [`Profile::Oval`](od_parts::Profile::Oval) and
+    /// [`Profile::Terminal`](od_parts::Profile::Terminal) have no 3D solid
+    /// yet — not a malformed route, a cross-section shape
+    /// [`crate::derive::route_solid`] does not tessellate. Neither appears
+    /// in the bundled catalogue today; narrowed rather than guessed at.
+    #[error("{0:?} has no 3D solid representation yet")]
+    UnsupportedProfile(od_parts::Profile),
 }
 
 pub type Result<T> = std::result::Result<T, MepError>;

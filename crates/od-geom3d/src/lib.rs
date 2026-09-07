@@ -13,5 +13,7 @@ pub mod point;
 
 pub use aabb::Aabb3;
 pub use frame::Frame3;
-pub use kernel::{MeshHandle, SolidHandle, SolidKernel};
+pub use kernel::{
+    BooleanOp, KernelError, MeshData, MeshHandle, Result, SolidHandle, SolidKernel, SweepRequest,
+};
 pub use point::{Point3, Vec3};
