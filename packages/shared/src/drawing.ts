@@ -142,6 +142,12 @@ export const commandSchema = z.discriminatedUnion('kind', [
     id: z.string(),
     distance: z.number(),
   }),
+  z.object({
+    kind: z.literal('set_vertex'),
+    id: z.string(),
+    index: z.number().int().nonnegative(),
+    position: point3Schema,
+  }),
 ]);
 export type Command = z.infer<typeof commandSchema>;
 
@@ -296,6 +302,13 @@ export const queryHitSchema = z.object({
   bounds_mm: extentsSchema,
   /** Endpoints, centres and midpoints — what an editing canvas snaps to. */
   snap_points_mm: z.array(point3TupleSchema),
+  /**
+   * Ordered, individually-draggable points — grip handles. Index `i` is
+   * exactly the `index` a `set_vertex` command targeting this entity means;
+   * empty for a kind with no editable vertices (a circle, a block
+   * reference, ...).
+   */
+  vertices_mm: z.array(point3TupleSchema),
 });
 export type QueryHit = z.infer<typeof queryHitSchema>;
 

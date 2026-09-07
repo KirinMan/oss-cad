@@ -106,6 +106,17 @@ export function EditorPage() {
   const [mirrorKeepOriginal, setMirrorKeepOriginal] = useState(true);
   const [offsetDistance, setOffsetDistance] = useState('100');
 
+  // ── Grip editing ────────────────────────────────────────────────────────
+  // A single selected entity with editable vertices (a line's endpoints, a
+  // polyline's vertices — see od_core::Geometry::editable_vertices) shows a
+  // grip at each one. A grip's own pointerdown stops propagation so the
+  // container's onCanvasPointerDown never sees it — without that, grabbing
+  // a grip would also start the whole-selection drag-to-move gesture.
+  // pointermove is deliberately left to bubble, though: it is how the
+  // container keeps feeding this drag the same live snapPoint every other
+  // draw tool already gets, for free.
+  const [gripDrag, setGripDrag] = useState<{ index: number } | null>(null);
+
   // ── MEP routing ────────────────────────────────────────────────────────
   const [mepPath, setMepPath] = useState<WorldPoint[]>([]);
   const [mepSystem, setMepSystem] = useState('');
@@ -170,6 +181,7 @@ export function EditorPage() {
     setPolylinePoints([]);
     setMirrorArmed(false);
     setMirrorPoints([]);
+    setGripDrag(null);
   }
 
   const open = useMutation({
@@ -285,7 +297,7 @@ export function EditorPage() {
       tool === 'polyline' ||
       tool === 'mep' ||
       tool === 'place' ||
-      (tool === 'select' && (drag?.moved === true || mirrorArmed))
+      (tool === 'select' && (drag?.moved === true || mirrorArmed || gripDrag !== null))
     );
   }
 
@@ -569,6 +581,36 @@ export function EditorPage() {
     edit.mutate({ kind: 'offset_entity', id, distance });
   }
 
+  function onGripPointerDown(e: React.PointerEvent, index: number) {
+    if (!current || edit.isPending) return;
+    // Must not reach the container: its own onCanvasPointerDown would
+    // otherwise start a whole-selection drag from the same click.
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setGripDrag({ index });
+  }
+
+  function onGripPointerUp(e: React.PointerEvent, index: number) {
+    if (!gripDrag || gripDrag.index !== index) {
+      setGripDrag(null);
+      return;
+    }
+    const hit = selection[0];
+    const original = hit?.vertices_mm[index];
+    const point = snapPoint?.world ?? toWorld(e.clientX, e.clientY);
+    setGripDrag(null);
+    if (!hit || !original || !point) return;
+    // The click only ever gives X/Y — the vertex's own original Z rides
+    // along unchanged, which for a polyline is also the only Z the engine
+    // will accept (Geometry::Polyline is planar at one shared elevation).
+    edit.mutate({
+      kind: 'set_vertex',
+      id: hit.id,
+      index,
+      position: { x: point.x, y: point.y, z: original[2] },
+    });
+  }
+
   // Delete/Backspace removes the current selection — but not while a text
   // input has focus, where Backspace means "erase a character."
   useEffect(() => {
@@ -618,6 +660,15 @@ export function EditorPage() {
   const [mirrorLineScreen, setMirrorLineScreen] = useState<
     { left: number; top: number }[]
   >([]);
+  const [gripScreens, setGripScreens] = useState<{ left: number; top: number }[]>([]);
+  // Dashed lines from the dragged vertex's immediate neighbours (in the
+  // entity's own vertex order — a line's other endpoint, or a polyline
+  // vertex's one or two neighbours) to wherever it would land right now.
+  // Not a full redraw of the entity: neighbours are the only geometry that
+  // actually changes shape while a single vertex moves.
+  const [gripRubberBand, setGripRubberBand] = useState<
+    { from: { left: number; top: number }; to: { left: number; top: number } }[]
+  >([]);
 
   useEffect(() => {
     // The `.current` read here (unused beyond gating) is what tells the
@@ -636,6 +687,8 @@ export function EditorPage() {
       setCirclePreview(null);
       setArcPreview(null);
       setMirrorLineScreen([]);
+      setGripScreens([]);
+      setGripRubberBand([]);
       return;
     }
 
@@ -751,6 +804,39 @@ export function EditorPage() {
       setMirrorLineScreen([]);
     }
 
+    const gripVertices = selection.length === 1 ? (selection[0]?.vertices_mm ?? []) : [];
+    if (tool === 'select' && gripVertices.length > 0) {
+      setGripScreens(gripVertices.map(([x, y]) => toScreen(fit, x, y)));
+    } else {
+      setGripScreens([]);
+    }
+
+    if (gripDrag && gripVertices.length > 0) {
+      const live = snap?.world ?? hoverPoint;
+      if (live) {
+        const liveScreen = toScreen(fit, live.x, live.y);
+        // A line has only its other endpoint as a neighbour; a polyline
+        // vertex has whichever of its predecessor/successor exist (an open
+        // polyline's first or last vertex has only one).
+        const neighbourIndices =
+          gripVertices.length === 2
+            ? [1 - gripDrag.index]
+            : [gripDrag.index - 1, gripDrag.index + 1].filter(
+                (i) => i >= 0 && i < gripVertices.length,
+              );
+        setGripRubberBand(
+          neighbourIndices
+            .map((i) => gripVertices[i])
+            .filter((v): v is [number, number, number] => v !== undefined)
+            .map((v) => ({ from: toScreen(fit, v[0], v[1]), to: liveScreen })),
+        );
+      } else {
+        setGripRubberBand([]);
+      }
+    } else {
+      setGripRubberBand([]);
+    }
+
     if (drag?.moved && selection.length > 0) {
       const live = snap?.world ?? hoverPoint;
       if (live) {
@@ -778,6 +864,7 @@ export function EditorPage() {
     arcPoints,
     mirrorArmed,
     mirrorPoints,
+    gripDrag,
   ]);
 
   const canRotate = selection.length > 0 && selection.every((s) => s.kind === 'blockref');
@@ -962,6 +1049,7 @@ export function EditorPage() {
               <>
                 <span>
                   選択中: {selection.length}件（ドラッグで移動、Alt+ドラッグでコピー）
+                  {gripScreens.length > 0 && '、□をドラッグで頂点編集'}
                 </span>
                 {canRotate && (
                   <>
@@ -1221,6 +1309,35 @@ export function EditorPage() {
                 style={box}
               />
             ))}
+            {gripRubberBand.length > 0 && (
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                aria-hidden
+              >
+                {gripRubberBand.map((seg, i) => (
+                  <line
+                    key={i}
+                    x1={seg.from.left}
+                    y1={seg.from.top}
+                    x2={seg.to.left}
+                    y2={seg.to.top}
+                    className="stroke-accent"
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                  />
+                ))}
+              </svg>
+            )}
+            {tool === 'select' &&
+              gripScreens.map((g, i) => (
+                <div
+                  key={i}
+                  onPointerDown={(e) => onGripPointerDown(e, i)}
+                  onPointerUp={(e) => onGripPointerUp(e, i)}
+                  className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-move border-2 border-accent bg-paper-raised"
+                  style={{ left: g.left, top: g.top }}
+                />
+              ))}
             {snapPoint && (
               <div
                 className="pointer-events-none absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 border-sys-hydronic bg-paper-raised"
