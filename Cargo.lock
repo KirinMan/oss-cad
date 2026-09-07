@@ -980,6 +980,7 @@ name = "od-domain-mep"
 version = "0.0.1"
 dependencies = [
  "od-core",
+ "od-geom2d",
  "od-geom3d",
  "od-index",
  "od-parts",

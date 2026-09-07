@@ -10,6 +10,7 @@ authors.workspace = true
 
 [dependencies]
 od-core = { workspace = true }
+od-geom2d = { workspace = true }
 od-geom3d = { workspace = true }
 od-index = { workspace = true }
 od-parts = { workspace = true }

@@ -54,6 +54,7 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
+pub mod clash;
 pub mod derive;
 pub mod graph;
 pub mod model;
