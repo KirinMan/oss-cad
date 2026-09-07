@@ -81,7 +81,7 @@ pub fn demo(output: &Path, json: bool) -> Result<()> {
 /// the domain's own entry point.
 #[expect(
     clippy::too_many_arguments,
-    reason = "a route's five inputs are all required and none group naturally"
+    reason = "a route's five inputs, plus the two optional render paths, are all required and none group naturally"
 )]
 pub fn route(
     input: &Path,
@@ -91,6 +91,7 @@ pub fn route(
     profile: &str,
     path: &str,
     render_svg: Option<&Path>,
+    render_3d: Option<&Path>,
     json: bool,
 ) -> Result<()> {
     let catalog = Catalog::bundled().context("loading the bundled part catalogue")?;
@@ -100,7 +101,7 @@ pub fn route(
     let profile = parse_profile(profile)?;
     let path = parse_path(path)?;
 
-    let (segments, fittings) = doc.edit::<_, _, anyhow::Error>("Route", |tx| {
+    let (segment_ids, fitting_ids) = doc.edit::<_, _, anyhow::Error>("Route", |tx| {
         let spec_route = RouteSpec {
             system: system.to_owned(),
             spec: spec.to_owned(),
@@ -118,7 +119,7 @@ pub fn route(
             derive::insert_part(tx, &catalog, &part)?;
         }
 
-        Ok((result.segments.len(), result.fittings.len()))
+        Ok((result.segments, result.fittings))
     })?;
 
     crate::load::save(&doc.db, output)?;
@@ -134,7 +135,53 @@ pub fn route(
         None => None,
     };
 
-    crate::report::mep_route(input, output, segments, fittings, rendered, json);
+    if let Some(glb_out) = render_3d {
+        render_route_solids(&doc, &segment_ids, glb_out)?;
+    }
+
+    crate::report::mep_route(
+        input,
+        output,
+        segment_ids.len(),
+        fitting_ids.len(),
+        rendered,
+        json,
+    );
+    Ok(())
+}
+
+/// Sweeps every routed segment into a solid through the default kernel
+/// (`od-geom3d-lite` — ADR-002; this is the CLI's own choice of kernel, not
+/// something `od-domain-mep` hardcodes) and writes the combined mesh to a
+/// `.glb` file. Fittings (`fitting_ids`) are not included: they come from
+/// the part catalogue as block references, not as `RouteSegment`s, and
+/// giving *those* a 3D solid is a separate, catalogue-side feature this
+/// does not attempt.
+fn render_route_solids(
+    doc: &Document,
+    segment_ids: &[od_core::ObjectId],
+    glb_out: &Path,
+) -> Result<()> {
+    let mut kernel = od_geom3d_lite::LiteKernel::new();
+    let mut meshes = Vec::new();
+    for &id in segment_ids {
+        let seg =
+            store::read_route(&doc.db, id).context("reading back a just-inserted route segment")?;
+        let solid = match derive::route_solid(&seg, &mut kernel) {
+            Ok(solid) => solid,
+            // Profile::Oval/Terminal have no tessellation yet (crate docs) —
+            // skipped rather than failing the whole render, the same
+            // "narrow gap, not a fatal error" treatment conversion_losses
+            // gives an unsupported geometry kind elsewhere in this CLI.
+            Err(od_domain_mep::model::MepError::UnsupportedProfile(_)) => continue,
+            Err(e) => return Err(e.into()),
+        };
+        use od_geom3d::SolidKernel as _;
+        let mesh_handle = kernel.triangulate(solid, 0.1)?;
+        meshes.push(kernel.mesh_data(mesh_handle)?.clone());
+    }
+    od_io_gltf::write_file(&meshes, glb_out)
+        .with_context(|| format!("writing {}", glb_out.display()))?;
     Ok(())
 }
 

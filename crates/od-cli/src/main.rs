@@ -182,6 +182,12 @@ enum MepCommand {
         /// invocation instead of a second full document load.
         #[arg(long, value_name = "SVG")]
         render: Option<PathBuf>,
+        /// Also sweep every routed segment into a solid (`od-geom3d-lite`)
+        /// and write the combined mesh as binary glTF — the one thing that
+        /// makes the sweep externally checkable before OpenDraft has a 3D
+        /// view of its own. Fittings are not included (crate docs).
+        #[arg(long, value_name = "GLB")]
+        render_3d: Option<PathBuf>,
     },
     /// Places one piece of equipment — always `Equipment`, never a fitting,
     /// which `route` inserts automatically.
@@ -305,6 +311,7 @@ fn main() -> Result<()> {
                 profile,
                 path,
                 render,
+                render_3d,
             } => mep::route(
                 &input,
                 &output,
@@ -313,6 +320,7 @@ fn main() -> Result<()> {
                 &profile,
                 &path,
                 render.as_deref(),
+                render_3d.as_deref(),
                 cli.json,
             ),
             MepCommand::Place {

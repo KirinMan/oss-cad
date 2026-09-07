@@ -17,7 +17,9 @@ od-core = { workspace = true }
 od-domain-mep = { workspace = true }
 od-io-dxf = { workspace = true }
 od-geom3d = { workspace = true }
+od-geom3d-lite = { workspace = true }
 od-index = { workspace = true }
+od-io-gltf = { workspace = true }
 od-io-odc = { workspace = true }
 od-io-svg = { workspace = true }
 od-io-sxf = { workspace = true }
