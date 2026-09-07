@@ -526,6 +526,29 @@ impl Database {
         id
     }
 
+    /// Ensures a paper-space layout exists and returns its id. Mirrors
+    /// `ensure_block`, but with `BlockKind::PaperSpace` — a layout is a block
+    /// record like any other, just one whose entities are viewports and
+    /// sheet annotation rather than model geometry.
+    pub fn ensure_paper_space(&mut self, name: &str) -> ObjectId {
+        if let Some(id) = self.tables.blocks.id_of(name) {
+            return id;
+        }
+        let id = self.ids.next_id();
+        self.tables.blocks.insert(
+            id,
+            BlockRecord {
+                name: name.to_owned(),
+                base_point: Point3::ORIGIN,
+                kind: BlockKind::PaperSpace,
+                entities: Vec::new(),
+                xref: None,
+                description: String::new(),
+            },
+        );
+        id
+    }
+
     /// Restores derived state after loading: name indexes, and the id counter,
     /// which must not hand out an id the file already uses.
     pub fn rehydrate(&mut self) {

@@ -167,6 +167,55 @@ impl DimensionEntity {
     }
 }
 
+/// A window onto model space, drawn on a paper-space layout — the classic
+/// "viewport" a print sheet is composed from. `position`/`width`/`height`
+/// are in the paper space this entity lives in; `target` is a point in
+/// *model* space, the one that appears at the viewport's own centre.
+/// `scale` is paper units per model unit (a 1:100 drawing is `0.01`).
+///
+/// Deliberately two coordinate systems in one entity rather than two
+/// entities kept in sync: a viewport genuinely is the join between them,
+/// and there is no single space either point could live in instead.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewportEntity {
+    pub position: Point3,
+    pub width: f64,
+    pub height: f64,
+    pub target: Point3,
+    pub scale: f64,
+}
+
+impl ViewportEntity {
+    /// The paper-space rectangle's four corners, in draw order.
+    #[must_use]
+    pub fn corners(&self) -> [Point3; 4] {
+        let (hw, hh) = (self.width / 2.0, self.height / 2.0);
+        [
+            Point3::new(self.position.x - hw, self.position.y - hh, self.position.z),
+            Point3::new(self.position.x + hw, self.position.y - hh, self.position.z),
+            Point3::new(self.position.x + hw, self.position.y + hh, self.position.z),
+            Point3::new(self.position.x - hw, self.position.y + hh, self.position.z),
+        ]
+    }
+
+    /// The model-space window this viewport shows — `target` at the centre,
+    /// sized so it fills the paper-space rectangle at `scale`.
+    #[must_use]
+    pub fn model_window(&self) -> Aabb3 {
+        if self.scale.abs() < tol::POINT_EPS {
+            return Aabb3::from_points([self.target]);
+        }
+        let (hw, hh) = (
+            self.width / 2.0 / self.scale,
+            self.height / 2.0 / self.scale,
+        );
+        Aabb3::from_points([
+            Point3::new(self.target.x - hw, self.target.y - hh, self.target.z),
+            Point3::new(self.target.x + hw, self.target.y + hh, self.target.z),
+        ])
+    }
+}
+
 /// A block insertion, optionally arrayed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockRef {
@@ -278,6 +327,7 @@ pub enum Geometry {
     Text(Box<TextEntity>),
     MText(Box<MTextEntity>),
     Dimension(Box<DimensionEntity>),
+    Viewport(Box<ViewportEntity>),
     BlockRef(Box<BlockRef>),
     Hatch(Box<Hatch>),
     /// A handle into the solid kernel (ADR-002). The core never inspects it.
@@ -328,6 +378,7 @@ impl Geometry {
             Geometry::Text(_) => "text",
             Geometry::MText(_) => "mtext",
             Geometry::Dimension(_) => "dimension",
+            Geometry::Viewport(_) => "viewport",
             Geometry::BlockRef(_) => "blockref",
             Geometry::Hatch(_) => "hatch",
             Geometry::Solid3d { .. } => "solid3d",
@@ -412,6 +463,10 @@ impl Geometry {
                 let (line_a, line_b) = d.dimension_line();
                 Aabb3::from_points([d.point_a, d.point_b, line_a, line_b])
             }
+            // Paper-space bounds only — the model-space window it shows is
+            // a different space entirely and has no business in the same
+            // bounding box.
+            Geometry::Viewport(vp) => Aabb3::from_points(vp.corners()),
             Geometry::BlockRef(b) => Aabb3::from_points([b.position]),
             Geometry::Hatch(h) => h.loops.iter().fold(Aabb3::EMPTY, |acc, l| {
                 let b = l.bounds();
@@ -517,6 +572,7 @@ impl Geometry {
                 vec![d.point_a, d.point_b, line_a, line_b]
             }
             Geometry::BlockRef(b) => vec![b.position],
+            Geometry::Viewport(vp) => vp.corners().to_vec(),
             Geometry::Hatch(_) | Geometry::Solid3d { .. } => Vec::new(),
             Geometry::Unsupported { proxy, .. } => proxy
                 .iter()

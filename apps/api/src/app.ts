@@ -165,6 +165,8 @@ export function createApp() {
       if (layers) args.push('--layers', layers);
       const window = c.req.query('window');
       if (window) args.push('--window', window);
+      const layout = c.req.query('layout');
+      if (layout) args.push('--layout', layout);
 
       const report = await od(renderSchema, args);
       const svg = await Bun.file(out).text();

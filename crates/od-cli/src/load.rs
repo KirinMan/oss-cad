@@ -181,6 +181,15 @@ pub fn conversion_losses(db: &Database, target: &str) -> Vec<String> {
             "{dimensions} dimension(s) — DXF's DIMENSION entity is not yet written"
         ));
     }
+    let viewports = db
+        .entities()
+        .filter(|(_, e)| matches!(e.geom, od_core::Geometry::Viewport(_)))
+        .count();
+    if viewports > 0 {
+        losses.push(format!(
+            "{viewports} viewport(s) — DXF's LAYOUT/VPORT objects are not yet written"
+        ));
+    }
     losses
 }
 
@@ -222,6 +231,32 @@ mod tests {
             conversion_losses(&db, "odc").is_empty(),
             "the native format loses nothing"
         );
+    }
+
+    #[test]
+    fn dxf_conversion_reports_a_viewport_it_cannot_write() {
+        let mut db = Database::new(ActorId::SYSTEM);
+        let layer = db.ensure_layer("0");
+        let paper_space = db
+            .tables
+            .blocks
+            .id_of(od_core::PAPER_SPACE)
+            .expect("Database::new always seeds a default paper space");
+        db.insert_entity(od_core::Entity::new(
+            layer,
+            paper_space,
+            od_core::Geometry::Viewport(Box::new(od_core::ViewportEntity {
+                position: od_core::Point3::ORIGIN,
+                width: 200.0,
+                height: 150.0,
+                target: od_core::Point3::ORIGIN,
+                scale: 1.0,
+            })),
+        ))
+        .expect("inserts");
+
+        let losses = conversion_losses(&db, "dxf");
+        assert!(losses.iter().any(|l| l.contains("viewport")));
     }
 
     #[test]

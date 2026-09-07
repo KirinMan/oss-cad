@@ -133,6 +133,12 @@ impl<'db> Transaction<'db> {
         self.db.ensure_block(name)
     }
 
+    /// Finds or creates a paper-space layout by name. Not undo-tracked, for
+    /// the same reason as [`Transaction::ensure_layer`].
+    pub fn ensure_paper_space(&mut self, name: &str) -> ObjectId {
+        self.db.ensure_paper_space(name)
+    }
+
     pub fn add_entity(&mut self, entity: Entity) -> Result<ObjectId> {
         let id = self.db.insert_entity(entity)?;
         self.changes.push(Change::Created { id });

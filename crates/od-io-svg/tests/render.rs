@@ -11,7 +11,10 @@
 //! them, and the resolutions (ByLayer, ByBlock, colour 7 against the
 //! background) that are invisible until they are wrong.
 
-use od_core::{ActorId, BlockRef, Color, Database, Entity, Geometry, GraphicStyle, Point3, Vec3};
+use od_core::{
+    ActorId, BlockRef, Color, Database, Entity, Geometry, GraphicStyle, PAPER_SPACE, Point3, Vec3,
+    ViewportEntity,
+};
 use od_geom3d::Aabb3;
 use od_io_svg::{Background, SvgOptions, to_svg, to_svg_with_view_box};
 
@@ -416,4 +419,99 @@ fn the_entity_cap_stops_a_runaway_document() {
     };
     let svg = to_svg(&db, &options);
     assert_eq!(count(&svg, "line"), 10);
+}
+
+#[test]
+fn a_viewport_draws_its_paper_space_boundary_and_clips_its_content() {
+    let mut db = Database::new(ActorId::SYSTEM);
+    let layer = db.ensure_layer("0");
+    let model_space = db.model_space();
+    db.insert_entity(Entity::new(layer, model_space, line(0.0, 0.0, 1000.0, 0.0)))
+        .expect("inserts");
+
+    let paper_space = db
+        .tables
+        .blocks
+        .id_of(PAPER_SPACE)
+        .expect("Database::new always seeds a default paper space");
+    db.insert_entity(Entity::new(
+        layer,
+        paper_space,
+        Geometry::Viewport(Box::new(ViewportEntity {
+            position: Point3::new(100.0, 100.0, 0.0),
+            width: 200.0,
+            height: 150.0,
+            target: Point3::new(500.0, 0.0, 0.0),
+            scale: 0.1,
+        })),
+    ))
+    .expect("inserts");
+
+    let svg = to_svg(
+        &db,
+        &SvgOptions {
+            space: Some(paper_space),
+            ..Default::default()
+        },
+    );
+
+    assert!(svg.contains("<clipPath"), "the viewport clips its content");
+    assert!(
+        svg.contains(r#"<rect x="0" y="25" width="200" height="150""#),
+        "the paper-space boundary rectangle, at the viewport's own size: {svg}"
+    );
+    assert_eq!(
+        count(&svg, "line"),
+        1,
+        "the model-space line inside the window is drawn nested"
+    );
+}
+
+#[test]
+fn a_viewport_only_shows_model_space_entities_within_its_window() {
+    let mut db = Database::new(ActorId::SYSTEM);
+    let layer = db.ensure_layer("0");
+    let model_space = db.model_space();
+    // Inside the viewport's model-space window (target ± half-size/scale).
+    db.insert_entity(Entity::new(layer, model_space, line(0.0, 0.0, 1000.0, 0.0)))
+        .expect("inserts");
+    // Far outside it.
+    db.insert_entity(Entity::new(
+        layer,
+        model_space,
+        line(1_000_000.0, 0.0, 1_000_001.0, 0.0),
+    ))
+    .expect("inserts");
+
+    let paper_space = db
+        .tables
+        .blocks
+        .id_of(PAPER_SPACE)
+        .expect("Database::new always seeds a default paper space");
+    db.insert_entity(Entity::new(
+        layer,
+        paper_space,
+        Geometry::Viewport(Box::new(ViewportEntity {
+            position: Point3::new(100.0, 100.0, 0.0),
+            width: 200.0,
+            height: 150.0,
+            target: Point3::new(500.0, 0.0, 0.0),
+            scale: 0.1,
+        })),
+    ))
+    .expect("inserts");
+
+    let svg = to_svg(
+        &db,
+        &SvgOptions {
+            space: Some(paper_space),
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(
+        count(&svg, "line"),
+        1,
+        "only the in-window line is drawn: {svg}"
+    );
 }

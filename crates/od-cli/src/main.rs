@@ -101,6 +101,10 @@ enum Command {
         /// Pixel width. Without it the SVG scales to its container.
         #[arg(long, value_name = "PX")]
         width: Option<u32>,
+        /// Render this paper-space layout instead of model space, by name
+        /// (e.g. `*Paper_Space`, the default layout every document has).
+        #[arg(long)]
+        layout: Option<String>,
     },
 
     /// Find entities by position, through the spatial index.
@@ -254,6 +258,7 @@ fn main() -> Result<()> {
             layers,
             dark,
             width,
+            layout,
         } => render(
             &input,
             &output,
@@ -261,6 +266,7 @@ fn main() -> Result<()> {
             layers,
             dark,
             width,
+            layout.as_deref(),
             cli.json,
         ),
         Command::Query {
@@ -431,6 +437,11 @@ fn parse_point(text: &str) -> Result<od_core::Point3> {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one CLI subcommand's inputs, passed straight through from its \
+              flags; none group naturally"
+)]
 fn render(
     input: &std::path::Path,
     output: &std::path::Path,
@@ -438,6 +449,7 @@ fn render(
     layers: Option<Vec<String>>,
     dark: bool,
     width: Option<u32>,
+    layout: Option<&str>,
     json: bool,
 ) -> Result<()> {
     let (db, _) = load::load(input)?;
@@ -454,6 +466,20 @@ fn render(
     };
     if let Some(text) = window {
         options.window = Some(parse_window(text)?);
+    }
+    if let Some(name) = layout {
+        let id = db
+            .tables
+            .blocks
+            .id_of(name)
+            .with_context(|| format!("no layout named `{name}`"))?;
+        let is_paper_space = db
+            .tables
+            .blocks
+            .get(id)
+            .is_some_and(|b| b.kind == od_core::BlockKind::PaperSpace);
+        anyhow::ensure!(is_paper_space, "`{name}` is not a paper-space layout");
+        options.space = Some(id);
     }
 
     let (svg, view_box) = od_io_svg::to_svg_with_view_box(&db, &options);

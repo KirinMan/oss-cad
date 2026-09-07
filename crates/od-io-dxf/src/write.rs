@@ -561,6 +561,13 @@ fn write_entity(w: &mut Writer, db: &Database, id: ObjectId, e: &Entity) {
             // is not what a real DXF DIMENSION needs. Reported as a loss by
             // the caller, same as Solid3d below.
         }
+        Geometry::Viewport(_) => {
+            // DXF's viewport system spans a LAYOUT object, an
+            // ACAD_LAYOUT dictionary entry and a VPORT entity with its own
+            // large field set — real, substantial work of its own, so this
+            // skips writing one rather than emitting something incomplete.
+            // Reported as a loss by the caller, same as Dimension above.
+        }
         Geometry::BlockRef(b) => {
             w.pair(0, "INSERT");
             write_common(w, db, id, e, "AcDbBlockReference");
