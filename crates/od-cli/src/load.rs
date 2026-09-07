@@ -172,6 +172,15 @@ pub fn conversion_losses(db: &Database, target: &str) -> Vec<String> {
     if custom > 0 {
         losses.push(format!("{custom} domain object(s)"));
     }
+    let dimensions = db
+        .entities()
+        .filter(|(_, e)| matches!(e.geom, od_core::Geometry::Dimension(_)))
+        .count();
+    if dimensions > 0 {
+        losses.push(format!(
+            "{dimensions} dimension(s) — DXF's DIMENSION entity is not yet written"
+        ));
+    }
     losses
 }
 

@@ -11,7 +11,7 @@
 //! since every caller already goes through [`Document::execute`] rather than
 //! constructing a variant's fields directly into a transaction.
 
-use crate::entity::{Entity, Geometry, TextEntity};
+use crate::entity::{DimensionEntity, Entity, Geometry, TextEntity};
 use crate::error::DbError;
 use crate::id::ObjectId;
 use crate::transaction::Transaction;
@@ -101,6 +101,20 @@ pub enum Command {
         text: String,
         height: f64,
         rotation: f64,
+    },
+    /// Draws a linear dimension on `layer`, measuring `point_a` to
+    /// `point_b`, in the always-present `Standard` dim style — the same
+    /// "choosing a style is separate" reasoning as [`Command::AddText`].
+    /// `text_override`, when given, replaces the displayed measurement
+    /// entirely (e.g. a tolerance note), matching
+    /// [`crate::entity::DimensionEntity::text_override`].
+    AddDimension {
+        layer: String,
+        point_a: Point3,
+        point_b: Point3,
+        offset: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text_override: Option<String>,
     },
 }
 
@@ -449,6 +463,38 @@ impl Command {
                 ))?;
                 outcome.created.push(id);
             }
+            Command::AddDimension {
+                layer,
+                point_a,
+                point_b,
+                offset,
+                text_override,
+            } => {
+                if point_a.distance_to(*point_b) < tol::POINT_EPS {
+                    return Err(DbError::InvalidCommand(
+                        "a dimension needs two distinct points".into(),
+                    ));
+                }
+                // Always the `standard` dim style, for the same reason
+                // AddText always uses the standard text style.
+                let style = tx.db().tables.dim_styles.id_of("standard").ok_or_else(|| {
+                    DbError::InvalidCommand("no `standard` dim style in this document".into())
+                })?;
+                let layer_id = tx.ensure_layer(layer);
+                let space = tx.db().model_space();
+                let id = tx.add_entity(Entity::new(
+                    layer_id,
+                    space,
+                    Geometry::Dimension(Box::new(DimensionEntity {
+                        point_a: *point_a,
+                        point_b: *point_b,
+                        offset: *offset,
+                        text_override: text_override.clone(),
+                        style,
+                    })),
+                ))?;
+                outcome.created.push(id);
+            }
         }
         Ok(outcome)
     }
@@ -482,6 +528,12 @@ fn try_translate(geom: &mut Geometry, delta: Vec3) -> bool {
         Geometry::BlockRef(block_ref) => block_ref.position = block_ref.position + delta,
         Geometry::Text(t) => t.position = t.position + delta,
         Geometry::MText(t) => t.position = t.position + delta,
+        // `offset` is a relative perpendicular distance, so it needs no
+        // change — only the two measured points move.
+        Geometry::Dimension(d) => {
+            d.point_a = d.point_a + delta;
+            d.point_b = d.point_b + delta;
+        }
         Geometry::Polyline {
             polyline,
             elevation,
@@ -1318,6 +1370,72 @@ mod tests {
             )
             .expect_err("zero height text is degenerate");
         assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn add_dimension_measures_two_points_in_the_standard_style() {
+        let mut d = doc();
+        let outcome = d
+            .execute(
+                "Draw",
+                &Command::AddDimension {
+                    layer: "A-DIM".into(),
+                    point_a: Point3::ORIGIN,
+                    point_b: Point3::new(3600.0, 0.0, 0.0),
+                    offset: 500.0,
+                    text_override: None,
+                },
+            )
+            .expect("commits");
+        let entity = d.db.entity(outcome.created[0]).expect("exists");
+        let Geometry::Dimension(dim) = &entity.geom else {
+            panic!("expected Dimension, got {:?}", entity.geom);
+        };
+        assert_eq!(dim.point_a, Point3::ORIGIN);
+        assert_eq!(dim.point_b, Point3::new(3600.0, 0.0, 0.0));
+        assert!(od_geom2d::tol::eq_len(dim.measured_length(), 3600.0));
+        assert!(dim.text_override.is_none());
+        assert_eq!(
+            d.db.tables
+                .dim_styles
+                .get(dim.style)
+                .map(|s| s.name.as_str()),
+            Some("Standard")
+        );
+    }
+
+    #[test]
+    fn add_dimension_rejects_two_coincident_points() {
+        let mut d = doc();
+        let err = d
+            .execute(
+                "Draw",
+                &Command::AddDimension {
+                    layer: "0".into(),
+                    point_a: Point3::ORIGIN,
+                    point_b: Point3::ORIGIN,
+                    offset: 500.0,
+                    text_override: None,
+                },
+            )
+            .expect_err("zero-length dimension is degenerate");
+        assert!(matches!(err, DbError::InvalidCommand(_)));
+    }
+
+    #[test]
+    fn dimension_line_offsets_perpendicular_to_the_measured_segment() {
+        let dim = DimensionEntity {
+            point_a: Point3::ORIGIN,
+            point_b: Point3::new(1000.0, 0.0, 0.0),
+            offset: 200.0,
+            text_override: None,
+            style: crate::id::ObjectId::new(crate::id::ActorId::SYSTEM, 1),
+        };
+        let (line_a, line_b) = dim.dimension_line();
+        assert!(od_geom2d::tol::eq_len(line_a.x, 0.0));
+        assert!(od_geom2d::tol::eq_len(line_a.y, 200.0));
+        assert!(od_geom2d::tol::eq_len(line_b.x, 1000.0));
+        assert!(od_geom2d::tol::eq_len(line_b.y, 200.0));
     }
 
     #[test]

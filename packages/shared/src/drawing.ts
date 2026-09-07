@@ -157,6 +157,16 @@ export const commandSchema = z.discriminatedUnion('kind', [
     /** Radians, counter-clockwise. */
     rotation: z.number(),
   }),
+  z.object({
+    kind: z.literal('add_dimension'),
+    layer: z.string(),
+    point_a: point3Schema,
+    point_b: point3Schema,
+    /** Perpendicular distance from the measured segment to the dimension line. */
+    offset: z.number(),
+    /** Overrides the displayed measurement entirely when given. */
+    text_override: z.string().optional(),
+  }),
 ]);
 export type Command = z.infer<typeof commandSchema>;
 

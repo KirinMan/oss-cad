@@ -54,7 +54,16 @@ interface Snapshot {
   viewBox: [number, number, number, number];
 }
 
-type Tool = 'line' | 'circle' | 'arc' | 'polyline' | 'text' | 'select' | 'mep' | 'place';
+type Tool =
+  | 'line'
+  | 'circle'
+  | 'arc'
+  | 'polyline'
+  | 'text'
+  | 'dimension'
+  | 'select'
+  | 'mep'
+  | 'place';
 type WorldPoint = { x: number; y: number };
 type ProfileKind = 'rect' | 'round';
 
@@ -125,6 +134,14 @@ export function EditorPage() {
   const [textValue, setTextValue] = useState('');
   const [textHeight, setTextHeight] = useState('250');
 
+  // ── Dimension ───────────────────────────────────────────────────────────
+  // Three clicks: the two measured points, then anywhere to place the
+  // dimension line — the third click's perpendicular distance from the
+  // point_a–point_b segment becomes the signed offset, computed client-side
+  // and sent as a plain number rather than a third point, since od-core's
+  // own DimensionEntity stores exactly that (not a placement point).
+  const [dimPoints, setDimPoints] = useState<WorldPoint[]>([]);
+
   // ── MEP routing ────────────────────────────────────────────────────────
   const [mepPath, setMepPath] = useState<WorldPoint[]>([]);
   const [mepSystem, setMepSystem] = useState('');
@@ -192,6 +209,7 @@ export function EditorPage() {
     setGripDrag(null);
     setTextPosition(null);
     setTextValue('');
+    setDimPoints([]);
   }
 
   const open = useMutation({
@@ -306,6 +324,7 @@ export function EditorPage() {
       tool === 'arc' ||
       tool === 'polyline' ||
       tool === 'text' ||
+      tool === 'dimension' ||
       tool === 'mep' ||
       tool === 'place' ||
       (tool === 'select' && (drag?.moved === true || mirrorArmed || gripDrag !== null))
@@ -465,6 +484,36 @@ export function EditorPage() {
       // Clicking again before 配置 just relocates the pending text, rather
       // than starting a second one — there is only ever one point to place.
       setTextPosition(point);
+      return;
+    }
+
+    if (tool === 'dimension') {
+      if (dimPoints.length < 2) {
+        setDimPoints((p) => [...p, point]);
+        return;
+      }
+      const [a, b] = dimPoints;
+      if (a && b) {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy);
+        if (len > 0) {
+          // Signed perpendicular distance from the third click to the
+          // a→b segment — the same (-dy, dx)/len basis
+          // DimensionEntity::dimension_line uses on the Rust side, so a
+          // positive offset here lands the dimension line on the same side
+          // there would compute.
+          const offset = ((point.x - a.x) * -dy + (point.y - a.y) * dx) / len;
+          edit.mutate({
+            kind: 'add_dimension',
+            layer,
+            point_a: { x: a.x, y: a.y, z: 0 },
+            point_b: { x: b.x, y: b.y, z: 0 },
+            offset,
+          });
+        }
+      }
+      setDimPoints([]);
       return;
     }
 
@@ -694,6 +743,7 @@ export function EditorPage() {
   const [mirrorLineScreen, setMirrorLineScreen] = useState<
     { left: number; top: number }[]
   >([]);
+  const [dimPathScreen, setDimPathScreen] = useState<{ left: number; top: number }[]>([]);
   const [gripScreens, setGripScreens] = useState<{ left: number; top: number }[]>([]);
   // Dashed lines from the dragged vertex's immediate neighbours (in the
   // entity's own vertex order — a line's other endpoint, or a polyline
@@ -723,6 +773,7 @@ export function EditorPage() {
       setMirrorLineScreen([]);
       setGripScreens([]);
       setGripRubberBand([]);
+      setDimPathScreen([]);
       return;
     }
 
@@ -839,6 +890,15 @@ export function EditorPage() {
       setMirrorLineScreen([]);
     }
 
+    if (tool === 'dimension' && dimPoints.length > 0) {
+      const rubberBand = snap?.world ?? hoverPoint;
+      const points = dimPoints.map((p) => toScreen(fit, p.x, p.y));
+      if (rubberBand) points.push(toScreen(fit, rubberBand.x, rubberBand.y));
+      setDimPathScreen(points);
+    } else {
+      setDimPathScreen([]);
+    }
+
     const gripVertices = selection.length === 1 ? (selection[0]?.vertices_mm ?? []) : [];
     if (tool === 'select' && gripVertices.length > 0) {
       setGripScreens(gripVertices.map(([x, y]) => toScreen(fit, x, y)));
@@ -901,6 +961,7 @@ export function EditorPage() {
     mirrorPoints,
     gripDrag,
     textPosition,
+    dimPoints,
   ]);
 
   const canRotate = selection.length > 0 && selection.every((s) => s.kind === 'blockref');
@@ -974,6 +1035,12 @@ export function EditorPage() {
               </ToolButton>
               <ToolButton active={tool === 'text'} onClick={() => switchTool('text')}>
                 文字
+              </ToolButton>
+              <ToolButton
+                active={tool === 'dimension'}
+                onClick={() => switchTool('dimension')}
+              >
+                寸法
               </ToolButton>
               <ToolButton active={tool === 'select'} onClick={() => switchTool('select')}>
                 選択
@@ -1055,6 +1122,14 @@ export function EditorPage() {
 
             {tool === 'text' && (
               <span>{textPosition ? '文字を入力して配置' : '配置位置をクリック'}</span>
+            )}
+
+            {tool === 'dimension' && (
+              <span>
+                {dimPoints.length === 0 && '始点をクリック'}
+                {dimPoints.length === 1 && '終点をクリック'}
+                {dimPoints.length === 2 && '寸法線の位置をクリック'}
+              </span>
             )}
 
             {tool === 'select' && mirrorArmed && (
@@ -1543,6 +1618,30 @@ export function EditorPage() {
                         ? `${mirrorPoints[i]?.x}-${mirrorPoints[i]?.y}-${i}`
                         : i
                     }
+                    cx={p.left}
+                    cy={p.top}
+                    r={4}
+                    className="fill-paper-raised stroke-accent"
+                    strokeWidth={2}
+                  />
+                ))}
+              </svg>
+            )}
+            {dimPathScreen.length > 0 && (
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                aria-hidden
+              >
+                <polyline
+                  points={dimPathScreen.map((p) => `${p.left},${p.top}`).join(' ')}
+                  fill="none"
+                  className="stroke-accent"
+                  strokeWidth={2}
+                  strokeDasharray="4 3"
+                />
+                {dimPathScreen.slice(0, dimPoints.length).map((p, i) => (
+                  <circle
+                    key={dimPoints[i] ? `${dimPoints[i]?.x}-${dimPoints[i]?.y}-${i}` : i}
                     cx={p.left}
                     cy={p.top}
                     r={4}

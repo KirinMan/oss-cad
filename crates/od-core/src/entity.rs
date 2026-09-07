@@ -8,7 +8,7 @@
 
 use crate::id::ObjectId;
 use crate::style::GraphicStyle;
-use od_geom2d::{Point2, Polyline2};
+use od_geom2d::{Point2, Polyline2, tol};
 use od_geom3d::{Aabb3, Point3, SolidHandle, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -118,6 +118,53 @@ pub struct MTextEntity {
     pub line_spacing: f64,
     #[serde(default)]
     pub flow: TextFlow,
+}
+
+/// A linear dimension: the measured distance between `point_a` and
+/// `point_b`, displayed along a dimension line offset perpendicular to that
+/// segment — the XY-plane reading every draw command in this build uses,
+/// same as `Geometry::Circle`'s XY-plane assumption.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DimensionEntity {
+    pub point_a: Point3,
+    pub point_b: Point3,
+    /// Perpendicular distance from the segment `point_a`–`point_b` to the
+    /// dimension line; sign picks which side.
+    pub offset: f64,
+    /// `None` shows the measured distance, formatted per `style`; `Some`
+    /// overrides it with arbitrary text — a real drafting need (a tolerance
+    /// note like "±0.5", or a value taken from elsewhere) that DXF's own
+    /// DIMENSION entity supports the same way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_override: Option<String>,
+    pub style: ObjectId,
+}
+
+impl DimensionEntity {
+    /// Where the dimension line meets each extension line — `point_a`/
+    /// `point_b` shifted perpendicular to the segment between them by
+    /// `offset`. Falls back to `point_a`/`point_b` themselves when they
+    /// coincide (no direction to be perpendicular to, so no meaningful
+    /// offset either) rather than returning `None` — every caller
+    /// (rendering, bounds, snapping) wants *a* line to work with even for a
+    /// degenerate dimension, not a special case to handle.
+    #[must_use]
+    pub fn dimension_line(&self) -> (Point3, Point3) {
+        let dx = self.point_b.x - self.point_a.x;
+        let dy = self.point_b.y - self.point_a.y;
+        let len = dx.hypot(dy);
+        if len < tol::POINT_EPS {
+            return (self.point_a, self.point_b);
+        }
+        let shift = Vec3::new(-dy / len * self.offset, dx / len * self.offset, 0.0);
+        (self.point_a + shift, self.point_b + shift)
+    }
+
+    /// The measured distance between `point_a` and `point_b`.
+    #[must_use]
+    pub fn measured_length(&self) -> f64 {
+        self.point_a.distance_to(self.point_b)
+    }
 }
 
 /// A block insertion, optionally arrayed.
@@ -230,6 +277,7 @@ pub enum Geometry {
     },
     Text(Box<TextEntity>),
     MText(Box<MTextEntity>),
+    Dimension(Box<DimensionEntity>),
     BlockRef(Box<BlockRef>),
     Hatch(Box<Hatch>),
     /// A handle into the solid kernel (ADR-002). The core never inspects it.
@@ -279,6 +327,7 @@ impl Geometry {
             Geometry::Spline { .. } => "spline",
             Geometry::Text(_) => "text",
             Geometry::MText(_) => "mtext",
+            Geometry::Dimension(_) => "dimension",
             Geometry::BlockRef(_) => "blockref",
             Geometry::Hatch(_) => "hatch",
             Geometry::Solid3d { .. } => "solid3d",
@@ -359,6 +408,10 @@ impl Geometry {
             }
             Geometry::Text(t) => Aabb3::from_points([t.position]),
             Geometry::MText(t) => Aabb3::from_points([t.position]),
+            Geometry::Dimension(d) => {
+                let (line_a, line_b) = d.dimension_line();
+                Aabb3::from_points([d.point_a, d.point_b, line_a, line_b])
+            }
             Geometry::BlockRef(b) => Aabb3::from_points([b.position]),
             Geometry::Hatch(h) => h.loops.iter().fold(Aabb3::EMPTY, |acc, l| {
                 let b = l.bounds();
@@ -459,6 +512,10 @@ impl Geometry {
             }
             Geometry::Text(t) => vec![t.position],
             Geometry::MText(t) => vec![t.position],
+            Geometry::Dimension(d) => {
+                let (line_a, line_b) = d.dimension_line();
+                vec![d.point_a, d.point_b, line_a, line_b]
+            }
             Geometry::BlockRef(b) => vec![b.position],
             Geometry::Hatch(_) | Geometry::Solid3d { .. } => Vec::new(),
             Geometry::Unsupported { proxy, .. } => proxy
