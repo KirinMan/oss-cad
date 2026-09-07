@@ -6,6 +6,7 @@
 use crate::check::{Finding, Severity};
 use crate::load::LoadOutcome;
 use od_core::Database;
+use od_domain_mep::clash::ClashIssue;
 use od_domain_mep::graph::ConnectionGraph;
 use od_domain_mep::takeoff::Takeoff;
 use od_parts::{Catalog, Instance, Part};
@@ -931,6 +932,63 @@ pub fn mep_ports(graph: &ConnectionGraph, path: &Path, json: bool) {
             } else {
                 "unconnected"
             },
+        );
+    }
+}
+
+pub fn mep_clash(issues: &[ClashIssue], path: &Path, json: bool) {
+    if json {
+        #[derive(Serialize)]
+        struct IssueRow {
+            kind: od_domain_mep::clash::ClashKind,
+            severity: od_domain_mep::clash::Severity,
+            a: String,
+            b: String,
+            gap_mm: f64,
+            location_mm: [f64; 3],
+        }
+        #[derive(Serialize)]
+        struct Report {
+            file: String,
+            passed: bool,
+            issues: Vec<IssueRow>,
+        }
+        emit(&Report {
+            file: path.display().to_string(),
+            passed: !issues
+                .iter()
+                .any(|i| i.severity == od_domain_mep::clash::Severity::Error),
+            issues: issues
+                .iter()
+                .map(|i| IssueRow {
+                    kind: i.kind,
+                    severity: i.severity,
+                    a: i.a.to_string(),
+                    b: i.b.to_string(),
+                    gap_mm: i.gap_mm,
+                    location_mm: [i.location.x, i.location.y, i.location.z],
+                })
+                .collect(),
+        });
+        return;
+    }
+
+    println!("{}", path.display());
+    if issues.is_empty() {
+        println!("  no interference found");
+        return;
+    }
+    for issue in issues {
+        println!(
+            "  [{:?}] {:?}  {} <-> {}  gap {:.1}mm at ({:.0}, {:.0}, {:.0})",
+            issue.severity,
+            issue.kind,
+            issue.a,
+            issue.b,
+            issue.gap_mm,
+            issue.location.x,
+            issue.location.y,
+            issue.location.z,
         );
     }
 }

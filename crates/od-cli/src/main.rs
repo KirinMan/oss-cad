@@ -227,6 +227,22 @@ enum MepCommand {
     /// Lists every port in the document, connected or not — what an editing
     /// canvas offers up as snap targets so a route lands exactly on one.
     Ports { input: PathBuf },
+    /// Checks every pair of routed segments for interference (F-108).
+    ///
+    /// Every profile is treated as its circumscribing cylinder (crate docs
+    /// on `od_domain_mep::clash`) — a conservative approximation, not a
+    /// true box/box test. `PlacedPart`s (equipment, fittings) are not
+    /// checked. Always runs a hard-clash check (any overlap) and a
+    /// duplicate-route check (the same run drawn twice); `--clearance` adds
+    /// a minimum-gap check on top.
+    Clash {
+        input: PathBuf,
+        /// Minimum required gap in millimetres between any two runs'
+        /// surfaces, checked across every system pair. Omit to skip this
+        /// check and report only hard clashes and duplicates.
+        #[arg(long)]
+        clearance: Option<f64>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -350,6 +366,7 @@ fn main() -> Result<()> {
             MepCommand::Takeoff { input } => mep::takeoff(&input, cli.json),
             MepCommand::Check { input } => mep::check(&input, cli.json),
             MepCommand::Ports { input } => mep::ports(&input, cli.json),
+            MepCommand::Clash { input, clearance } => mep::clash(&input, clearance, cli.json),
         },
     }
 }

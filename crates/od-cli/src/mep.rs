@@ -8,6 +8,7 @@
 
 use anyhow::{Context, Result};
 use od_core::{ActorId, Database, Document, Point3};
+use od_domain_mep::clash::{self, ClashKind, ClashRule, Severity as ClashSeverity, SystemFilter};
 use od_domain_mep::model::{PlacedPart, PlacementKind};
 use od_domain_mep::route::{RouteSpec, draw_route};
 use od_domain_mep::{derive, graph::ConnectionGraph, ports, store, takeoff};
@@ -338,6 +339,57 @@ pub fn ports(input: &Path, json: bool) -> Result<()> {
     let (db, _) = crate::load::load(input)?;
     let graph = ConnectionGraph::build(&db, &catalog);
     crate::report::mep_ports(&graph, input, json);
+    Ok(())
+}
+
+/// Two runs this close together were drawn as the same route, not
+/// coincidentally adjacent — well below normal drawing precision, far above
+/// floating-point noise. Fixed rather than `--clearance`-configurable: a
+/// duplicate isn't a distance problem, it is exact or it is not one.
+const DUPLICATE_TOLERANCE_MM: f64 = 1.0;
+
+/// Runs the interference check (F-108) over every routed segment. Always
+/// checks for hard clashes and duplicate runs; `clearance`, if given, also
+/// checks every pair for a minimum required gap. See
+/// `od_domain_mep::clash`'s module docs for exactly what "checked" means
+/// here (every profile as its circumscribing cylinder, routes only).
+pub fn clash(input: &Path, clearance: Option<f64>, json: bool) -> Result<()> {
+    let (db, _) = crate::load::load(input)?;
+
+    let mut rules = vec![
+        ClashRule {
+            a: SystemFilter::any(),
+            b: SystemFilter::any(),
+            kind: ClashKind::Hard,
+            tolerance: 0.0,
+            severity: ClashSeverity::Error,
+        },
+        ClashRule {
+            a: SystemFilter::any(),
+            b: SystemFilter::any(),
+            kind: ClashKind::Duplicate,
+            tolerance: DUPLICATE_TOLERANCE_MM,
+            severity: ClashSeverity::Warning,
+        },
+    ];
+    if let Some(tolerance) = clearance {
+        rules.push(ClashRule {
+            a: SystemFilter::any(),
+            b: SystemFilter::any(),
+            kind: ClashKind::Clearance,
+            tolerance,
+            severity: ClashSeverity::Warning,
+        });
+    }
+
+    let issues = clash::find_clashes(&db, &rules);
+    let failed = issues.iter().any(|i| i.severity == ClashSeverity::Error);
+    crate::report::mep_clash(&issues, input, json);
+    if failed {
+        // A hard clash is exactly the kind of mistake this check exists to
+        // catch before it reaches site, same convention as `check` (F-108).
+        std::process::exit(1);
+    }
     Ok(())
 }
 
