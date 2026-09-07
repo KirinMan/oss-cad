@@ -9,6 +9,7 @@ members = [
     "crates/od-io-odc",
     "crates/od-domain-mep",
     "crates/od-io-svg",
+    "crates/od-io-sxf",
     "crates/od-parts",
     "crates/od-solver",
     "crates/od-cli",
@@ -31,6 +32,7 @@ od-io-dxf = { path = "crates/od-io-dxf", version = "0.0.1" }
 od-io-odc = { path = "crates/od-io-odc", version = "0.0.1" }
 od-domain-mep = { path = "crates/od-domain-mep", version = "0.0.1" }
 od-io-svg = { path = "crates/od-io-svg", version = "0.0.1" }
+od-io-sxf = { path = "crates/od-io-sxf", version = "0.0.1" }
 od-parts = { path = "crates/od-parts", version = "0.0.1" }
 
 serde = { version = "1", features = ["derive"] }

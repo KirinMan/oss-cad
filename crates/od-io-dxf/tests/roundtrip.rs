@@ -290,3 +290,39 @@ fn a_document_built_in_memory_exports_and_reads_back() {
     assert!(back.tables.layers.by_name("m-duct-supply").is_some());
     assert!(back.validate().is_empty());
 }
+
+#[test]
+fn paper_space_entities_are_dropped_silently_on_dxf_write() {
+    // write_entities (write.rs) only iterates db.entities_in(db.model_space()),
+    // and read_entities (read.rs) always files a top-level ENTITIES record
+    // into model space regardless of group code 67 (the paperspace flag,
+    // never read anywhere in this crate) -- so this is self-consistent
+    // internally, but it means a layout's own content (title block, a
+    // viewport border drawn on paper space) is not "reported as a loss"
+    // anywhere the way Dimension/Viewport explicitly are: it is simply
+    // absent from the written file, with no warning at all.
+    let mut db = od_core::Database::new(od_core::ActorId::SYSTEM);
+    let layer = db.ensure_layer("0");
+    let paper_space = db
+        .tables
+        .blocks
+        .id_of(od_core::PAPER_SPACE)
+        .expect("Database::new always seeds a default paper space");
+    db.insert_entity(od_core::Entity::new(
+        layer,
+        paper_space,
+        od_core::Geometry::Line {
+            a: od_core::Point3::ORIGIN,
+            b: od_core::Point3::new(100.0, 0.0, 0.0),
+        },
+    ))
+    .expect("inserts");
+
+    let text = od_io_dxf::write_string(&db);
+    assert!(
+        !text.contains("LINE"),
+        "a paper-space LINE is missing from the DXF output entirely, with \
+         no warning, unlike Dimension/Viewport which are at least reported \
+         as a loss by od-cli's conversion_losses"
+    );
+}

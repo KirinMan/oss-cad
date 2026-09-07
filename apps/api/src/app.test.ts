@@ -209,6 +209,27 @@ describe.if(hasEngine)('drawings', () => {
     expect(text.endsWith('0\nEOF\n')).toBe(true);
   });
 
+  test('converts to SFC, and it reads back with the same geometry', async () => {
+    const res = await app.request('/api/drawings/convert?to=sfc', {
+      method: 'POST',
+      body: upload(),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('text/plain');
+
+    const sfc = new File([await res.arrayBuffer()], 'plan.sfc');
+    const form = new FormData();
+    form.set('file', sfc);
+    const inspected = await app.request('/api/drawings/inspect', {
+      method: 'POST',
+      body: form,
+    });
+    expect(inspected.status).toBe(200);
+    const body = (await inspected.json()) as { entities: number; format: string };
+    expect(body.format).toBe('sfc');
+    expect(body.entities).toBe(2);
+  });
+
   test('a .odc upload round-trips back through the service', async () => {
     const saved = await app.request('/api/drawings/convert', {
       method: 'POST',
