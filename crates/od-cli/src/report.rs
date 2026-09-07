@@ -606,6 +606,40 @@ pub fn edit(
     }
 }
 
+pub fn script(outcome: &od_script::RunOutcome, input: &Path, output: &Path, json: bool) {
+    if json {
+        #[derive(Serialize)]
+        struct Report<'a> {
+            input: String,
+            output: String,
+            created: &'a [String],
+            modified: &'a [String],
+            deleted: &'a [String],
+            log: &'a [String],
+        }
+        emit(&Report {
+            input: input.display().to_string(),
+            output: output.display().to_string(),
+            created: &outcome.created,
+            modified: &outcome.modified,
+            deleted: &outcome.deleted,
+            log: &outcome.log,
+        });
+        return;
+    }
+
+    println!("{} → {}", input.display(), output.display());
+    println!(
+        "  {} created, {} modified, {} deleted",
+        outcome.created.len(),
+        outcome.modified.len(),
+        outcome.deleted.len()
+    );
+    for line in &outcome.log {
+        println!("  console: {line}");
+    }
+}
+
 pub fn mep_demo(db: &Database, output: &Path, fittings: usize, segments: usize, json: bool) {
     let s = db.stats();
     if json {

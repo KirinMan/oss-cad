@@ -216,6 +216,18 @@ export const editReportSchema = z.object({
 });
 export type EditReport = z.infer<typeof editReportSchema>;
 
+/** `od --json script`'s own report shape (od-script). */
+export const scriptReportSchema = z.object({
+  input: z.string(),
+  output: z.string(),
+  created: z.array(z.string()),
+  modified: z.array(z.string()),
+  deleted: z.array(z.string()),
+  /** Everything the script's own `console.log` calls produced, in order. */
+  log: z.array(z.string()),
+});
+export type ScriptReport = z.infer<typeof scriptReportSchema>;
+
 /**
  * `POST /api/drawings/edit`'s response — a web-friendly envelope around the
  * same outcome {@link editReportSchema} describes, carrying the updated

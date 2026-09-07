@@ -1,0 +1,23 @@
+[package]
+name = "od-script"
+description = "JavaScript scripting host for OpenDraft (F-011-adjacent, docs/06-roadmap.md): a script drives a Document through the same Command ADR-006 every other caller uses. Not the WASM plugin runtime (od-plugin) — see crate docs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+od-core = { workspace = true }
+boa_engine = "0.21"
+# The `Trace`/`Finalize` derive macros expand to code that names `boa_gc`
+# by its crate-root path, so it needs to be a direct dependency even
+# though `boa_engine::gc` already re-exports the traits themselves.
+boa_gc = "0.21"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

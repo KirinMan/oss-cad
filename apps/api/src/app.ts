@@ -16,6 +16,7 @@ import {
   profileSchema,
   queryReportSchema,
   renderSchema,
+  scriptReportSchema,
   inspectionSchema,
   partDetailSchema,
   partSummarySchema,
@@ -312,6 +313,84 @@ export function createApp() {
     } finally {
       await Promise.all(
         [inPath, outPath, svgPath].map((p) =>
+          Bun.file(p)
+            .delete()
+            .catch(() => {
+              /* already gone */
+            }),
+        ),
+      );
+    }
+  });
+
+  // Runs a JavaScript file against a drawing (od-script) — a script drives
+  // the document through the same Command JSON /api/drawings/edit accepts
+  // (ADR-006), just from a loop or a library instead of one call per
+  // request. No sandboxing beyond what `od script` itself has (its own
+  // crate docs are explicit about this): a script here runs with the full
+  // trust of whoever calls this endpoint, the same as sending it a Command
+  // directly.
+  app.post('/api/drawings/script', async (c) => {
+    const form = await c.req.formData().catch(() => null);
+    const file = form?.get('file');
+    const scriptRaw = form?.get('script');
+    if (!(file instanceof File)) {
+      return c.json<ApiError>(
+        { error: 'no file', detail: 'send the drawing as multipart form field `file`' },
+        400,
+      );
+    }
+    if (typeof scriptRaw !== 'string') {
+      return c.json<ApiError>(
+        {
+          error: 'no script',
+          detail: 'send the script as multipart form field `script`, as text',
+        },
+        400,
+      );
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return c.json<ApiError>(
+        {
+          error: 'file too large',
+          detail: `${file.size} bytes exceeds the ${MAX_UPLOAD_BYTES} byte limit`,
+        },
+        413,
+      );
+    }
+    const extension = READABLE.find((ext) => file.name.toLowerCase().endsWith(`.${ext}`));
+    if (!extension) {
+      return c.json<ApiError>(
+        {
+          error: 'unsupported format',
+          detail: `accepted: ${READABLE.map((e) => `.${e}`).join(', ')}`,
+        },
+        415,
+      );
+    }
+
+    const inPath = `${tmpRoot()}/script-in-${crypto.randomUUID()}.${extension}`;
+    const outPath = `${tmpRoot()}/script-out-${crypto.randomUUID()}.${extension}`;
+    const scriptPath = `${tmpRoot()}/script-${crypto.randomUUID()}.js`;
+    await Promise.all([Bun.write(inPath, file), Bun.write(scriptPath, scriptRaw)]);
+    try {
+      const report = await od(scriptReportSchema, [
+        'script',
+        inPath,
+        outPath,
+        scriptPath,
+      ]);
+      const document = await Bun.file(outPath).arrayBuffer();
+      return c.json({
+        created: report.created,
+        modified: report.modified,
+        deleted: report.deleted,
+        log: report.log,
+        document: Buffer.from(document).toString('base64'),
+      });
+    } finally {
+      await Promise.all(
+        [inPath, outPath, scriptPath].map((p) =>
           Bun.file(p)
             .delete()
             .catch(() => {
