@@ -217,6 +217,32 @@ fn dxf_conversion_losses(db: &Database) -> Vec<String> {
             "{viewports} viewport(s) — DXF's LAYOUT/VPORT objects are not yet written"
         ));
     }
+    let solids = count_kind(db, |g| matches!(g, od_core::Geometry::Solid3d { .. }));
+    if solids > 0 {
+        losses.push(format!(
+            "{solids} solid(s) — DXF's 3DSOLID entity is not yet written"
+        ));
+    }
+    // od-io-dxf only ever writes model space (the ENTITIES section) and
+    // ordinary block definitions (the BLOCKS section) — an entity owned by
+    // a paper-space layout has nowhere in the file to go at all, unlike
+    // Dimension/Viewport (specific geometry kinds it always skips): this is
+    // any geometry kind, lost purely because of *where* it was drawn.
+    let paper_space_entities = db
+        .entities()
+        .filter(|(_, e)| {
+            db.tables
+                .blocks
+                .get(e.owner_space)
+                .is_some_and(|b| b.kind == od_core::BlockKind::PaperSpace)
+        })
+        .count();
+    if paper_space_entities > 0 {
+        losses.push(format!(
+            "{paper_space_entities} entities on a paper-space layout — DXF export only writes \
+             model space"
+        ));
+    }
     losses
 }
 
@@ -384,6 +410,63 @@ mod tests {
             losses
                 .iter()
                 .any(|l| l.contains("od-io-sxf does not write"))
+        );
+    }
+
+    #[test]
+    fn dxf_conversion_reports_a_solid3d_it_cannot_write() {
+        let mut db = Database::new(ActorId::SYSTEM);
+        let layer = db.ensure_layer("0");
+        let space = db.model_space();
+        db.insert_entity(od_core::Entity::new(
+            layer,
+            space,
+            od_core::Geometry::Solid3d {
+                handle: od_core::SolidHandle(1),
+                bounds: od_core::Aabb3::from_points([od_core::Point3::ORIGIN]),
+            },
+        ))
+        .expect("inserts");
+
+        // write.rs's Solid3d arm says "skipped ... and reported by the
+        // caller" (crates/od-io-dxf/src/write.rs) -- but no caller does:
+        // dxf_conversion_losses has no Solid3d check at all, so a solid is
+        // dropped from the DXF file with *no* warning of any kind, unlike
+        // Dimension/Viewport which are explicitly counted above.
+        let losses = conversion_losses(&db, "dxf");
+        assert!(
+            losses.iter().any(|l| l.contains("solid")),
+            "a Solid3d entity vanishes from DXF output with no loss reported at all: {losses:?}"
+        );
+    }
+
+    #[test]
+    fn dxf_conversion_reports_entities_on_a_paper_space_layout() {
+        let mut db = Database::new(ActorId::SYSTEM);
+        let layer = db.ensure_layer("0");
+        let paper_space = db
+            .tables
+            .blocks
+            .id_of(od_core::PAPER_SPACE)
+            .expect("Database::new always seeds a default paper space");
+        db.insert_entity(od_core::Entity::new(
+            layer,
+            paper_space,
+            od_core::Geometry::Line {
+                a: od_core::Point3::ORIGIN,
+                b: od_core::Point3::new(100.0, 0.0, 0.0),
+            },
+        ))
+        .expect("inserts");
+
+        // od_io_dxf::write only ever writes model space (ENTITIES) and
+        // ordinary block definitions (BLOCKS) -- an entity owned by a
+        // paper-space layout has nowhere in the file to go, unlike
+        // Dimension/Viewport (skipped by geometry kind, not by space).
+        let losses = conversion_losses(&db, "dxf");
+        assert!(
+            losses.iter().any(|l| l.contains("paper-space")),
+            "an ordinary line on a paper-space layout vanishes with no loss reported: {losses:?}"
         );
     }
 
