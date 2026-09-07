@@ -101,7 +101,7 @@ pub fn read_str(text: &str) -> (Database, ReadOutcome) {
             _ => false,
         };
         if !handled && r.name != "drawing_sheet_feature" {
-            preserve_unsupported(&mut db, space, &r, &mut outcome);
+            preserve_unsupported(&mut db, &t, space, &r, &mut outcome);
         }
     }
 
@@ -117,20 +117,89 @@ fn warn(outcome: &mut ReadOutcome, record: &Record<'_>, message: impl Into<Strin
 
 fn preserve_unsupported(
     db: &mut Database,
+    t: &Tables,
     space: od_core::ObjectId,
     r: &Record<'_>,
     outcome: &mut ReadOutcome,
 ) {
-    let layer = db.ensure_layer("0");
+    // Most feature records — including every one this function ever sees,
+    // since every *modeled* kind is handled before falling through here —
+    // put their layer code first; resolve it the same way `read_shape` does
+    // rather than defaulting every unsupported entity onto layer "0"
+    // regardless of where it actually was.
+    let layer = r
+        .params
+        .first()
+        .and_then(|v| v.parse::<u32>().ok())
+        .and_then(|code| t.layers.get(&code).copied())
+        .unwrap_or_else(|| db.ensure_layer("0"));
     let geom = Geometry::Unsupported {
         source_type: r.name.to_owned(),
         payload: r.raw.as_bytes().to_vec(),
-        proxy: Vec::<ProxyGraphic>::new(),
+        proxy: extract_proxy(r.name, &r.params),
     };
     if db.insert_entity(Entity::new(layer, space, geom)).is_ok()
         && !outcome.unsupported_types.iter().any(|t| t == r.name)
     {
         outcome.unsupported_types.push(r.name.to_owned());
+    }
+}
+
+/// A best-effort "so it is still visible and selectable" outline
+/// ([`Geometry::Unsupported`]'s own doc comment) for the feature kinds this
+/// crate deliberately does not model. Not a claim of correctness — a
+/// zero-length line at a shape's own base/origin point, or (for
+/// `spline_feature`, which stores its control points the same
+/// `VertexX`/`VertexY`-list way `polyline_feature` does) the real control
+/// polygon. Positions come from the parameter layouts documented in
+/// `crate::table`'s module docs (the same `SfcHelper`-derived source as
+/// every other feature this crate reads); an entirely unrecognised future
+/// feature name falls through to no proxy at all, same as before this
+/// function existed.
+fn extract_proxy(name: &str, p: &[String]) -> Vec<ProxyGraphic> {
+    let point_at = |xi: usize, yi: usize| -> Vec<ProxyGraphic> {
+        let found: Option<ProxyGraphic> = (|| {
+            let x: f64 = p.get(xi)?.parse().ok()?;
+            let y: f64 = p.get(yi)?.parse().ok()?;
+            let pt = Point3::new(x, y, 0.0);
+            Some(ProxyGraphic::Polyline {
+                points: vec![pt, pt],
+                closed: false,
+            })
+        })();
+        found.into_iter().collect()
+    };
+    match name {
+        // sfig_locate_feature(Layer, Name, X, Y, Angle, RatioX, RatioY)
+        "sfig_locate_feature" => point_at(2, 3),
+        // externally_defined_symbol_feature(Layer, ColorFlag, Color, Name, X, Y, Angle, Scale)
+        "externally_defined_symbol_feature" => point_at(4, 5),
+        // clothoid_feature(Layer, Color, LineType, LineWidth, BaseX, BaseY, ...)
+        "clothoid_feature" => point_at(4, 5),
+        // linear_dim_feature / curve_dim_feature / angular_dim_feature all
+        // open with (Layer, Color, LineType, LineWidth, <origin X>, <origin Y>, ...).
+        "linear_dim_feature" | "curve_dim_feature" | "angular_dim_feature" => point_at(4, 5),
+        // spline_feature(Layer, Color, LineType, LineWidth, Flag, Count, VertexX, VertexY)
+        "spline_feature" => {
+            let xs = p.get(6).map(|s| parse_list(s)).unwrap_or_default();
+            let ys = p.get(7).map(|s| parse_list(s)).unwrap_or_default();
+            if xs.len() >= 2 && xs.len() == ys.len() {
+                vec![ProxyGraphic::Polyline {
+                    points: xs
+                        .iter()
+                        .zip(&ys)
+                        .map(|(&x, &y)| Point3::new(x, y, 0.0))
+                        .collect(),
+                    closed: false,
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        // sfig_org_feature is a *definition* (like a DXF BLOCK), not
+        // something placed at a point of its own — there is nothing here to
+        // extract a location from, honestly.
+        _ => Vec::new(),
     }
 }
 

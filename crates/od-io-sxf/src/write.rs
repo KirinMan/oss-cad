@@ -361,8 +361,19 @@ fn write_shape(
             sweep,
             ..
         } => {
-            let start = start_angle.to_degrees();
-            let end = (start_angle + sweep).to_degrees();
+            // SXF's own direction field could carry a negative sweep
+            // directly, but od-io-dxf already solved this exact problem for
+            // a format with no direction field at all — swapping the angle
+            // order for a clockwise sweep — so this mirrors that rather
+            // than inventing a second convention. `parse_arc` reconstructs
+            // an equivalent (possibly renormalised) CCW-sweep arc either
+            // way, since SXF's direction flag only distinguishes "which way
+            // between these two angles," not sweep sign.
+            let (start, end) = if *sweep >= 0.0 {
+                (*start_angle, start_angle + sweep)
+            } else {
+                (start_angle + sweep, *start_angle)
+            };
             Some(feature(
                 "arc_feature",
                 &[
@@ -374,8 +385,8 @@ fn write_shape(
                     num(center.y),
                     num(*radius),
                     int(0),
-                    num(start),
-                    num(end),
+                    num(start.to_degrees()),
+                    num(end.to_degrees()),
                 ],
             ))
         }
@@ -407,6 +418,15 @@ fn write_shape(
                     ],
                 ))
             } else {
+                // Same reasoning as the plain-`Arc` case above: normalise a
+                // reversed param range into SXF's own always-forward
+                // (StartAngle < EndAngle, direction 0) shape rather than
+                // assuming `start_param < end_param` always holds.
+                let (start, end) = if end_param >= start_param {
+                    (*start_param, *end_param)
+                } else {
+                    (*end_param, *start_param)
+                };
                 Some(feature(
                     "ellipse_arc_feature",
                     &[
@@ -420,8 +440,8 @@ fn write_shape(
                         num(ry),
                         int(0),
                         num(rot),
-                        num(start_param.to_degrees()),
-                        num(end_param.to_degrees()),
+                        num(start.to_degrees()),
+                        num(end.to_degrees()),
                     ],
                 ))
             }

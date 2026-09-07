@@ -334,3 +334,114 @@ fn an_unrecognised_feature_is_preserved_not_dropped() {
     assert_eq!(source_type, "sfig_org_feature");
     assert!(String::from_utf8_lossy(payload).contains("sfig_org_feature"));
 }
+
+#[test]
+fn a_clockwise_negative_sweep_arc_round_trips_correctly() {
+    // `Command::AddArc` (od-core) stores `sweep` exactly as given, including
+    // negative (clockwise) values -- this is a real, reachable state, not a
+    // hypothetical one. od-io-dxf's writer swaps the endpoints for a negative
+    // sweep to stay within DXF's CCW-only convention (see write.rs); this
+    // checks od-io-sxf's writer does the equivalent for SFC's direction flag.
+    let mut db = Database::new(ActorId::SYSTEM);
+    let layer = db.ensure_layer("0");
+    let space = db.model_space();
+    let original = Geometry::Arc {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 10.0,
+        start_angle: 0.0,
+        sweep: -std::f64::consts::FRAC_PI_2, // quarter turn clockwise
+        normal: Vec3::Z,
+    };
+    db.insert_entity(Entity::new(layer, space, original.clone()))
+        .expect("inserts");
+
+    let text = od_io_sxf::write_string(&db);
+    let (again, outcome) = od_io_sxf::read_str(&text);
+    assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
+    let entities: Vec<_> = again.entities().collect();
+    assert_eq!(entities.len(), 1);
+    // A negative sweep is a signed quantity od-core also uses to mean
+    // "clockwise"; od-io-sxf's own Geometry::Arc never carries one (see
+    // `parse_arc`), so a faithful round trip normalises it to the equivalent
+    // non-negative CCW sweep the way od_geom2d::Arc2::from_start_end_ccw
+    // itself would: a 90 degree sweep, not a 270 degree one covering the
+    // opposite arc.
+    if let Geometry::Arc { sweep, .. } = &entities[0].1.geom {
+        assert!(
+            (sweep.to_degrees() - 90.0).abs() < 1e-6,
+            "expected a 90 degree arc, got {} degrees -- the writer did not \
+             account for the negative (clockwise) sweep",
+            sweep.to_degrees()
+        );
+    } else {
+        panic!("expected an Arc");
+    }
+}
+
+#[test]
+fn a_genuinely_unknown_feature_gets_no_proxy_and_is_honestly_invisible() {
+    // A feature name this crate has never heard of — as opposed to one of
+    // the specific kinds `read.rs::extract_proxy` knows the parameter
+    // layout for (sfig_locate_feature, clothoid_feature, the *_dim_feature
+    // family, spline_feature) — is preserved as Geometry::Unsupported (it
+    // survives a save) but genuinely cannot be given a meaningful proxy:
+    // there is no way to know where in its own parameter list a made-up
+    // future feature's geometry would even live. This is the accepted,
+    // unavoidable residual of "never destroy what you cannot read," not a
+    // bug: it stays invisible to rendering/`od query` rather than showing
+    // a guessed-at, possibly wrong, location.
+    let text = "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n\
+        /*SXF\n#10 = layer_feature(\\'0\\','1')\nSXF*/\n\
+        /*SXF\n#20 = arbitrary_curve_feature('1','1','1','1','0.0','0.0','100.0','100.0')\nSXF*/\n\
+        ENDSEC;\nEND-ISO-10303-21;\n";
+    let (db, outcome) = od_io_sxf::read_str(text);
+    assert_eq!(
+        outcome.unsupported_types,
+        vec!["arbitrary_curve_feature".to_string()]
+    );
+    let (_, entity) = db
+        .entities()
+        .find(|(_, e)| matches!(e.geom, Geometry::Unsupported { .. }))
+        .expect("the unrecognised feature is preserved as an entity");
+    assert!(
+        matches!(&entity.geom, Geometry::Unsupported { proxy, .. } if proxy.is_empty()),
+        "a feature name this crate has no parameter layout for cannot be given a real proxy"
+    );
+}
+
+#[test]
+fn a_known_but_unmodelled_feature_still_gets_a_real_proxy_and_its_own_layer() {
+    // sfig_locate_feature (a composite-figure placement) is deliberately
+    // not modelled as its own Geometry variant, but its parameter layout
+    // is known (crate docs), so unlike the fully-unknown case above it
+    // gets a real point proxy — and, since preserve_unsupported resolves
+    // the record's own layer code the same way every modelled shape does,
+    // it lands on the layer it actually named rather than always "0".
+    let text = "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n\
+        /*SXF\n#10 = layer_feature(\\'D-BLOCKS\\','1')\nSXF*/\n\
+        /*SXF\n#20 = sfig_locate_feature('1',\\'SYMBOL1\\','2500.0','1300.0','0.0','1.0','1.0')\nSXF*/\n\
+        ENDSEC;\nEND-ISO-10303-21;\n";
+    let (db, outcome) = od_io_sxf::read_str(text);
+    assert_eq!(
+        outcome.unsupported_types,
+        vec!["sfig_locate_feature".to_string()]
+    );
+    let (id, entity) = db
+        .entities()
+        .find(|(_, e)| matches!(e.geom, Geometry::Unsupported { .. }))
+        .expect("preserved as an entity");
+    assert!(
+        matches!(&entity.geom, Geometry::Unsupported { proxy, .. } if !proxy.is_empty()),
+        "sfig_locate_feature's X/Y is a known field, so it should get a real proxy"
+    );
+    assert_eq!(
+        db.tables.layers.get(entity.layer).map(|l| l.name.as_str()),
+        Some("D-BLOCKS"),
+        "an unsupported entity should still land on the layer it actually named"
+    );
+    let bounds = db.entity_bounds(id);
+    assert!(
+        !bounds.is_empty(),
+        "a real proxy gives it a real bounding box"
+    );
+}
