@@ -8,6 +8,7 @@ import {
   conversionSchema,
   editReportSchema,
   mepCheckReportSchema,
+  mepClashReportSchema,
   mepPlaceReportSchema,
   mepPortsReportSchema,
   mepRouteReportSchema,
@@ -715,6 +716,28 @@ export function createApp() {
   app.post('/api/mep/ports', (c) =>
     withUpload(c, async (path) => {
       const report = await od(mepPortsReportSchema, ['mep', 'ports', path]);
+      return c.json(report);
+    }),
+  );
+
+  // Interference check (F-108). `?clearance=` is optional — omitted, only
+  // hard clashes and duplicate runs are reported, matching `od mep clash`'s
+  // own default.
+  app.post('/api/mep/clash', (c) =>
+    withUpload(c, async (path) => {
+      const args = ['mep', 'clash', path];
+      const clearanceRaw = c.req.query('clearance');
+      if (clearanceRaw !== undefined) {
+        const clearance = Number(clearanceRaw);
+        if (!Number.isFinite(clearance)) {
+          return c.json<ApiError>(
+            { error: 'invalid clearance', detail: '`clearance` must be a number' },
+            400,
+          );
+        }
+        args.push('--clearance', String(clearance));
+      }
+      const report = await od(mepClashReportSchema, args);
       return c.json(report);
     }),
   );

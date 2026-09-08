@@ -771,4 +771,68 @@ describe.if(hasEngine)('drawings', () => {
     expect(body.ports.map((p) => p.position_mm)).toContainEqual([0, 0, 500]);
     expect(body.ports.map((p) => p.position_mm)).toContainEqual([2000, 0, 500]);
   });
+
+  test('mep/clash passes a plain drawing with nothing routed', async () => {
+    const res = await app.request('/api/mep/clash', { method: 'POST', body: upload() });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { passed: boolean; issues: unknown[] };
+    expect(body.passed).toBe(true);
+    expect(body.issues).toEqual([]);
+  });
+
+  test('mep/clash reports a hard clash between two crossing ducts', async () => {
+    const firstForm = await uploadOdc();
+    firstForm.set('system', 'sys.air.supply');
+    firstForm.set('spec', 'spec.duct.galvanised.rect');
+    firstForm.set('profile', JSON.stringify({ kind: 'rect', w: 400, h: 300 }));
+    firstForm.set(
+      'path',
+      JSON.stringify([
+        { x: -1000, y: 0, z: 0 },
+        { x: 1000, y: 0, z: 0 },
+      ]),
+    );
+    const first = await app.request('/api/mep/route', {
+      method: 'POST',
+      body: firstForm,
+    });
+    const { document: afterFirst } = (await first.json()) as { document: string };
+
+    const secondForm = new FormData();
+    secondForm.set('file', new File([Buffer.from(afterFirst, 'base64')], 'routed.odc'));
+    secondForm.set('system', 'sys.air.return');
+    secondForm.set('spec', 'spec.duct.galvanised.rect');
+    secondForm.set('profile', JSON.stringify({ kind: 'rect', w: 400, h: 300 }));
+    secondForm.set(
+      'path',
+      JSON.stringify([
+        { x: 0, y: -1000, z: 0 },
+        { x: 0, y: 1000, z: 0 },
+      ]),
+    );
+    const second = await app.request('/api/mep/route', {
+      method: 'POST',
+      body: secondForm,
+    });
+    const { document } = (await second.json()) as { document: string };
+
+    const form = new FormData();
+    form.set('file', new File([Buffer.from(document, 'base64')], 'clashy.odc'));
+    const res = await app.request('/api/mep/clash', { method: 'POST', body: form });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      passed: boolean;
+      issues: { kind: string; severity: string; gap_mm: number }[];
+    };
+    expect(body.passed).toBe(false);
+    expect(body.issues.some((i) => i.kind === 'hard' && i.gap_mm < 0)).toBe(true);
+  });
+
+  test('mep/clash rejects a non-numeric clearance', async () => {
+    const res = await app.request('/api/mep/clash?clearance=not-a-number', {
+      method: 'POST',
+      body: upload(),
+    });
+    expect(res.status).toBe(400);
+  });
 });

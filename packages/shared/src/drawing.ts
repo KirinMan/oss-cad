@@ -360,6 +360,31 @@ export const mepPortsReportSchema = z.object({
 });
 export type MepPortsReport = z.infer<typeof mepPortsReportSchema>;
 
+/**
+ * `od --json mep clash`'s own report shape — read-only, so this doubles as
+ * the API response (F-108). Every profile is checked as its circumscribing
+ * cylinder, not its true cross-section — see `od_domain_mep::clash`'s crate
+ * docs for why that is a deliberate, conservative approximation rather than
+ * a gap.
+ */
+export const mepClashIssueSchema = z.object({
+  kind: z.enum(['hard', 'clearance', 'duplicate']),
+  severity: z.enum(['info', 'warning', 'error']),
+  a: z.string(),
+  b: z.string(),
+  /** Negative is penetration depth, for `hard` and `clearance` issues. */
+  gap_mm: z.number(),
+  location_mm: point3TupleSchema,
+});
+export type MepClashIssue = z.infer<typeof mepClashIssueSchema>;
+
+export const mepClashReportSchema = z.object({
+  file: z.string(),
+  passed: z.boolean(),
+  issues: z.array(mepClashIssueSchema),
+});
+export type MepClashReport = z.infer<typeof mepClashReportSchema>;
+
 /** One `od query` hit — `od --json query`'s own shape. */
 export const queryHitSchema = z.object({
   id: z.string(),
