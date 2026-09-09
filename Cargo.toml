@@ -6,6 +6,7 @@ members = [
     "crates/od-geom3d-lite",
     "crates/od-core",
     "crates/od-index",
+    "crates/od-io-bcf",
     "crates/od-io-dxf",
     "crates/od-io-gltf",
     "crates/od-io-odc",
@@ -32,6 +33,7 @@ od-geom3d = { path = "crates/od-geom3d", version = "0.0.1" }
 od-geom3d-lite = { path = "crates/od-geom3d-lite", version = "0.0.1" }
 od-core = { path = "crates/od-core", version = "0.0.1" }
 od-index = { path = "crates/od-index", version = "0.0.1" }
+od-io-bcf = { path = "crates/od-io-bcf", version = "0.0.1" }
 od-io-dxf = { path = "crates/od-io-dxf", version = "0.0.1" }
 od-io-gltf = { path = "crates/od-io-gltf", version = "0.0.1" }
 od-io-odc = { path = "crates/od-io-odc", version = "0.0.1" }

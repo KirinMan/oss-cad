@@ -1,0 +1,14 @@
+[package]
+name = "od-io-bcf"
+description = "Writes a minimal BCF 2.1 (.bcfzip) file — one topic per issue, no viewpoints or snapshots. No dependencies: the ZIP container and CRC-32 are hand-rolled, the same way DXF/.odc/SXF/glTF are."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
