@@ -248,6 +248,11 @@ enum MepCommand {
         /// check and report only hard clashes and duplicates.
         #[arg(long)]
         clearance: Option<f64>,
+        /// Also write every issue found as a BCF 2.1 topic
+        /// (`od-io-bcf` — export only, no viewpoints or snapshots), so a
+        /// BIM coordination tool can open the same findings directly.
+        #[arg(long, value_name = "BCFZIP")]
+        bcf: Option<PathBuf>,
     },
 }
 
@@ -372,7 +377,11 @@ fn main() -> Result<()> {
             MepCommand::Takeoff { input, csv } => mep::takeoff(&input, csv.as_deref(), cli.json),
             MepCommand::Check { input } => mep::check(&input, cli.json),
             MepCommand::Ports { input } => mep::ports(&input, cli.json),
-            MepCommand::Clash { input, clearance } => mep::clash(&input, clearance, cli.json),
+            MepCommand::Clash {
+                input,
+                clearance,
+                bcf,
+            } => mep::clash(&input, clearance, bcf.as_deref(), cli.json),
         },
     }
 }
