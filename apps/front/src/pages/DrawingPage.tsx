@@ -393,6 +393,8 @@ function TakeoffView({ data }: { data: MepTakeoffReport }) {
                 <th className="px-3 py-2 font-medium">仕様</th>
                 <th className="px-3 py-2 text-right font-medium">延長 (m)</th>
                 <th className="px-3 py-2 text-right font-medium">本数</th>
+                <th className="px-3 py-2 text-right font-medium">定尺本数</th>
+                <th className="px-3 py-2 text-right font-medium">継手数</th>
               </tr>
             </thead>
             <tbody>
@@ -407,6 +409,10 @@ function TakeoffView({ data }: { data: MepTakeoffReport }) {
                     {(r.length_mm / 1000).toFixed(1)}
                   </td>
                   <td className="px-3 py-1.5 text-right tabular">{r.count}</td>
+                  <td className="px-3 py-1.5 text-right tabular">
+                    {r.stock_pieces ?? '—'}
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular">{r.joints ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -418,7 +424,7 @@ function TakeoffView({ data }: { data: MepTakeoffReport }) {
                 <td className="px-3 py-1.5 text-right tabular">
                   {(data.total_length_mm / 1000).toFixed(1)}
                 </td>
-                <td className="px-3 py-1.5" />
+                <td className="px-3 py-1.5" colSpan={3} />
               </tr>
             </tfoot>
           </table>

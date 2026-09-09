@@ -307,6 +307,9 @@ export const mepTakeoffReportSchema = z.object({
       spec: z.string(),
       length_mm: z.number(),
       count: z.number().int().nonnegative(),
+      /** `null` when the spec has no stock length to count pieces against. */
+      stock_pieces: z.number().int().nonnegative().nullable(),
+      joints: z.number().int().nonnegative().nullable(),
     }),
   ),
   /** Fitting part id → count. */
