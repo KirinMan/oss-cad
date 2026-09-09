@@ -307,9 +307,14 @@ fn parse_path(text: &str) -> Result<Vec<Point3>> {
         .collect()
 }
 
-pub fn takeoff(input: &Path, json: bool) -> Result<()> {
+pub fn takeoff(input: &Path, csv_out: Option<&Path>, json: bool) -> Result<()> {
+    let catalog = Catalog::bundled().context("loading the bundled part catalogue")?;
     let (db, _) = crate::load::load(input)?;
-    let result = takeoff::take_off(&db);
+    let result = takeoff::take_off(&db, &catalog);
+    if let Some(path) = csv_out {
+        std::fs::write(path, takeoff::to_csv(&result))
+            .with_context(|| format!("writing {}", path.display()))?;
+    }
     crate::report::mep_takeoff(&result, input, json);
     Ok(())
 }

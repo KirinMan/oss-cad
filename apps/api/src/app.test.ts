@@ -689,7 +689,14 @@ describe.if(hasEngine)('drawings', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       total_length_mm: number;
-      routes: { system: string; spec: string; length_mm: number; count: number }[];
+      routes: {
+        system: string;
+        spec: string;
+        length_mm: number;
+        count: number;
+        stock_pieces: number | null;
+        joints: number | null;
+      }[];
       fittings: Record<string, number>;
     };
     expect(body.total_length_mm).toBeGreaterThan(0);
@@ -699,6 +706,10 @@ describe.if(hasEngine)('drawings', () => {
         spec: 'spec.pipe.sgp',
         length_mm: body.total_length_mm,
         count: 2,
+        // spec.pipe.sgp's stock length is 5500mm; both 2000mm runs fit in
+        // one piece each, so no mid-run joint is needed.
+        stock_pieces: 2,
+        joints: 0,
       },
     ]);
     expect(Object.values(body.fittings).reduce((a, b) => a + b, 0)).toBe(1);

@@ -221,7 +221,13 @@ enum MepCommand {
         render: Option<PathBuf>,
     },
     /// Reports routed lengths by system/spec and part counts by id.
-    Takeoff { input: PathBuf },
+    Takeoff {
+        input: PathBuf,
+        /// Also write the take-off as a single CSV table (routes, fittings
+        /// and equipment, distinguished by a `kind` column).
+        #[arg(long, value_name = "CSV")]
+        csv: Option<PathBuf>,
+    },
     /// Reports unconnected ports and parts the catalogue could not resolve.
     Check { input: PathBuf },
     /// Lists every port in the document, connected or not — what an editing
@@ -363,7 +369,7 @@ fn main() -> Result<()> {
                 render.as_deref(),
                 cli.json,
             ),
-            MepCommand::Takeoff { input } => mep::takeoff(&input, cli.json),
+            MepCommand::Takeoff { input, csv } => mep::takeoff(&input, csv.as_deref(), cli.json),
             MepCommand::Check { input } => mep::check(&input, cli.json),
             MepCommand::Ports { input } => mep::ports(&input, cli.json),
             MepCommand::Clash { input, clearance } => mep::clash(&input, clearance, cli.json),

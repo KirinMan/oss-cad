@@ -755,6 +755,10 @@ pub fn mep_takeoff(t: &Takeoff, path: &Path, json: bool) {
             spec: &'a str,
             length_mm: f64,
             count: usize,
+            /// `null` when the spec has no stock length to count pieces
+            /// against (`od_domain_mep::takeoff` module docs).
+            stock_pieces: Option<usize>,
+            joints: Option<usize>,
         }
         #[derive(Serialize)]
         struct Report<'a> {
@@ -772,6 +776,8 @@ pub fn mep_takeoff(t: &Takeoff, path: &Path, json: bool) {
                 spec,
                 length_mm: total.length_mm,
                 count: total.count,
+                stock_pieces: total.stock_pieces,
+                joints: total.joints(),
             })
             .collect();
         routes.sort_by(|a, b| a.system.cmp(b.system).then(a.spec.cmp(b.spec)));
@@ -790,15 +796,18 @@ pub fn mep_takeoff(t: &Takeoff, path: &Path, json: bool) {
         println!("  no routed runs");
     } else {
         println!(
-            "\n  {:<24} {:<28} {:>12} {:>8}",
-            "system", "spec", "length (mm)", "runs"
+            "\n  {:<24} {:<28} {:>12} {:>8} {:>8} {:>8}",
+            "system", "spec", "length (mm)", "runs", "pieces", "joints"
         );
         let mut routes: Vec<_> = t.routes.iter().collect();
         routes.sort_by(|a, b| a.0.cmp(b.0));
         for ((system, spec), total) in routes {
             println!(
-                "  {system:<24} {spec:<28} {:>12.0} {:>8}",
-                total.length_mm, total.count
+                "  {system:<24} {spec:<28} {:>12.0} {:>8} {:>8} {:>8}",
+                total.length_mm,
+                total.count,
+                total.stock_pieces.map_or("-".to_owned(), |n| n.to_string()),
+                total.joints().map_or("-".to_owned(), |n| n.to_string()),
             );
         }
         println!("\n  total length  {:.0} mm", t.total_length_mm());
