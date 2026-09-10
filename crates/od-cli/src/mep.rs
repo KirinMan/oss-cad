@@ -358,7 +358,12 @@ const DUPLICATE_TOLERANCE_MM: f64 = 1.0;
 /// checks every pair for a minimum required gap. See
 /// `od_domain_mep::clash`'s module docs for exactly what "checked" means
 /// here (every profile as its circumscribing cylinder, routes only).
-pub fn clash(input: &Path, clearance: Option<f64>, json: bool) -> Result<()> {
+pub fn clash(
+    input: &Path,
+    clearance: Option<f64>,
+    bcf_out: Option<&Path>,
+    json: bool,
+) -> Result<()> {
     let (db, _) = crate::load::load(input)?;
 
     let mut rules = vec![
@@ -389,6 +394,14 @@ pub fn clash(input: &Path, clearance: Option<f64>, json: bool) -> Result<()> {
 
     let issues = clash::find_clashes(&db, &rules);
     let failed = issues.iter().any(|i| i.severity == ClashSeverity::Error);
+
+    if let Some(bcf_path) = bcf_out {
+        let topics: Vec<od_io_bcf::BcfTopic> =
+            issues.iter().map(clash_issue_to_bcf_topic).collect();
+        od_io_bcf::write_file(&topics, bcf_path)
+            .with_context(|| format!("writing {}", bcf_path.display()))?;
+    }
+
     crate::report::mep_clash(&issues, input, json);
     if failed {
         // A hard clash is exactly the kind of mistake this check exists to
@@ -396,6 +409,53 @@ pub fn clash(input: &Path, clearance: Option<f64>, json: bool) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// One `ClashIssue` -> one BCF topic. `od-io-bcf` is deliberately generic
+/// over what a "topic" is (it does not depend on `od-domain-mep`, mirroring
+/// how `od-io-gltf` stays generic over `MeshData` rather than naming
+/// `RouteSegment`) — this function is where that translation happens, the
+/// same role `render_route_solids` plays for the glTF export above.
+fn clash_issue_to_bcf_topic(issue: &od_domain_mep::clash::ClashIssue) -> od_io_bcf::BcfTopic {
+    use od_domain_mep::clash::ClashKind;
+    use std::hash::{Hash, Hasher};
+
+    // Content-derived, not position-derived: the same issue gets the same
+    // BCF Guid across repeated runs of the same drawing even if
+    // find_clashes's internal iteration order ever shifts, which matters
+    // for diffing two exports in version control or a CI baseline.
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    issue.a.hash(&mut hasher);
+    issue.b.hash(&mut hasher);
+    format!("{:?}", issue.kind).hash(&mut hasher);
+    let guid = od_io_bcf::guid_from_seed(hasher.finish());
+
+    let priority = match issue.severity {
+        od_domain_mep::clash::Severity::Error => "Critical",
+        od_domain_mep::clash::Severity::Warning => "Normal",
+        od_domain_mep::clash::Severity::Info => "Minor",
+    };
+    let kind_label = match issue.kind {
+        ClashKind::Hard => "Hard clash",
+        ClashKind::Clearance => "Clearance violation",
+        ClashKind::Duplicate => "Duplicate route",
+    };
+
+    od_io_bcf::BcfTopic {
+        guid,
+        title: format!("{kind_label}: {} x {}", issue.a, issue.b),
+        topic_type: "Clash".into(),
+        // No workflow state is persisted yet (od_domain_mep::clash's own
+        // module docs) -- every export is a fresh, unaddressed finding.
+        topic_status: "Open".into(),
+        priority: priority.into(),
+        description: format!(
+            "gap: {:.1}mm at ({:.0}, {:.0}, {:.0})",
+            issue.gap_mm, issue.location.x, issue.location.y, issue.location.z
+        ),
+        creation_author: "OpenDraft".into(),
+        creation_date: od_io_bcf::iso8601_utc(std::time::SystemTime::now()),
+    }
 }
 
 #[cfg(test)]
