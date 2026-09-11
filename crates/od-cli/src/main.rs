@@ -188,6 +188,19 @@ enum MepCommand {
         /// view of its own. Fittings are not included (crate docs).
         #[arg(long, value_name = "GLB")]
         render_3d: Option<PathBuf>,
+        /// Also export every routed segment as IFC4, through
+        /// `od-bridge-ifc` (`od-io-ifc` — LGPL-3.0 kept out of this binary
+        /// via process isolation, see NOTICE). Requires `--ifc-bridge`.
+        /// Fittings are not included (crate docs).
+        #[arg(long, value_name = "IFC", requires = "ifc_bridge")]
+        render_ifc: Option<PathBuf>,
+        /// Path to `bridges/od-bridge-ifc/od_bridge_ifc.py`.
+        #[arg(long, value_name = "PATH")]
+        ifc_bridge: Option<PathBuf>,
+        /// Python interpreter to run the IFC bridge with — must have
+        /// `ifcopenshell` installed.
+        #[arg(long, value_name = "PATH", default_value = "python3")]
+        ifc_python: PathBuf,
     },
     /// Places one piece of equipment — always `Equipment`, never a fitting,
     /// which `route` inserts automatically.
@@ -339,17 +352,31 @@ fn main() -> Result<()> {
                 path,
                 render,
                 render_3d,
-            } => mep::route(
-                &input,
-                &output,
-                &system,
-                &spec,
-                &profile,
-                &path,
-                render.as_deref(),
-                render_3d.as_deref(),
-                cli.json,
-            ),
+                render_ifc,
+                ifc_bridge,
+                ifc_python,
+            } => {
+                let ifc_opts = match (&render_ifc, &ifc_bridge) {
+                    (Some(out), Some(bridge)) => Some(mep::IfcExportOptions {
+                        out,
+                        bridge,
+                        python: &ifc_python,
+                    }),
+                    _ => None,
+                };
+                mep::route(
+                    &input,
+                    &output,
+                    &system,
+                    &spec,
+                    &profile,
+                    &path,
+                    render.as_deref(),
+                    render_3d.as_deref(),
+                    ifc_opts,
+                    cli.json,
+                )
+            }
             MepCommand::Place {
                 input,
                 output,
