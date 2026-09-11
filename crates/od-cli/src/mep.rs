@@ -243,11 +243,7 @@ fn render_route_ifc(
             ifc_class: ifc_class_for(kind).to_owned(),
             name: id.to_string(),
             positions: mesh.positions.iter().map(|p| [p.x, p.y, p.z]).collect(),
-            triangles: mesh
-                .indices
-                .chunks_exact(3)
-                .map(|c| [c[0], c[1], c[2]])
-                .collect(),
+            triangles: mesh.indices.as_chunks::<3>().0.to_vec(),
             properties,
         });
     }
