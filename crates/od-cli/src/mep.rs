@@ -8,6 +8,7 @@
 
 use anyhow::{Context, Result};
 use od_core::{ActorId, Database, Document, Point3};
+use od_domain_mep::autoroute;
 use od_domain_mep::clash::{self, ClashKind, ClashRule, Severity as ClashSeverity, SystemFilter};
 use od_domain_mep::model::{PlacedPart, PlacementKind};
 use od_domain_mep::route::{RouteSpec, draw_route};
@@ -546,6 +547,32 @@ fn clash_issue_to_bcf_topic(issue: &od_domain_mep::clash::ClashIssue) -> od_io_b
         creation_author: "OpenDraft".into(),
         creation_date: od_io_bcf::iso8601_utc(std::time::SystemTime::now()),
     }
+}
+
+/// Proposes routes between two points, treating every existing route
+/// segment as an obstacle (`od_domain_mep::clash::effective_radius`'s
+/// circumscribing-cylinder approximation, same as interference checking,
+/// inflated by `clearance`). A proposal only — this never writes to the
+/// document (F-107: "a person always chooses and can redraw"); pipe a
+/// chosen candidate's path into `od mep route --path` to actually draw it.
+pub fn autoroute(input: &Path, path: &str, clearance: f64, json: bool) -> Result<()> {
+    let (db, _) = crate::load::load(input)?;
+    let points = parse_path(path)?;
+    let [start, end] = points.as_slice() else {
+        anyhow::bail!("--path must have exactly two points: start;end");
+    };
+
+    let obstacles: Vec<od_geom3d::Aabb3> = store::all_routes(&db)
+        .into_iter()
+        .map(|(_, route)| {
+            let radius = clash::effective_radius(route.profile) + clearance;
+            od_geom3d::Aabb3::new(route.start, route.end).inflated(radius)
+        })
+        .collect();
+
+    let candidates = autoroute::find_candidates(*start, *end, &obstacles)?;
+    crate::report::mep_autoroute(&candidates, input, json);
+    Ok(())
 }
 
 #[cfg(test)]

@@ -267,6 +267,19 @@ enum MepCommand {
         #[arg(long, value_name = "BCFZIP")]
         bcf: Option<PathBuf>,
     },
+    /// Proposes routes between two points, treating every existing route
+    /// as an obstacle (F-107). A proposal only — nothing is drawn; pipe a
+    /// chosen candidate's path into `mep route --path`.
+    Autoroute {
+        input: PathBuf,
+        /// Exactly two points: `start;end`, e.g. `0,0,2800;5000,3000,2800`.
+        #[arg(long, allow_hyphen_values = true)]
+        path: String,
+        /// Extra clearance in millimetres added on top of each existing
+        /// route's circumscribing radius when treating it as an obstacle.
+        #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        clearance: f64,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -409,6 +422,11 @@ fn main() -> Result<()> {
                 clearance,
                 bcf,
             } => mep::clash(&input, clearance, bcf.as_deref(), cli.json),
+            MepCommand::Autoroute {
+                input,
+                path,
+                clearance,
+            } => mep::autoroute(&input, &path, clearance, cli.json),
         },
     }
 }
