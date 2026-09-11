@@ -1002,6 +1002,53 @@ pub fn mep_clash(issues: &[ClashIssue], path: &Path, json: bool) {
     }
 }
 
+pub fn mep_autoroute(
+    candidates: &[od_domain_mep::autoroute::RouteCandidate],
+    path: &Path,
+    json: bool,
+) {
+    if json {
+        #[derive(Serialize)]
+        struct CandidateRow {
+            length_mm: f64,
+            turns: usize,
+            path_mm: Vec<[f64; 3]>,
+        }
+        #[derive(Serialize)]
+        struct Report {
+            file: String,
+            candidates: Vec<CandidateRow>,
+        }
+        emit(&Report {
+            file: path.display().to_string(),
+            candidates: candidates
+                .iter()
+                .map(|c| CandidateRow {
+                    length_mm: c.length_mm,
+                    turns: c.turns,
+                    path_mm: c.path.iter().map(|p| [p.x, p.y, p.z]).collect(),
+                })
+                .collect(),
+        });
+        return;
+    }
+
+    println!("{}", path.display());
+    for (i, c) in candidates.iter().enumerate() {
+        let points: Vec<String> = c
+            .path
+            .iter()
+            .map(|p| format!("{:.0},{:.0},{:.0}", p.x, p.y, p.z))
+            .collect();
+        println!(
+            "  candidate {i}: {:.0}mm, {} turn(s)\n    --path \"{}\"",
+            c.length_mm,
+            c.turns,
+            points.join(";"),
+        );
+    }
+}
+
 /// Reports the result of a spatial query.
 ///
 /// The layer and type of each hit, not just its id: an id alone tells the

@@ -152,6 +152,15 @@ pub enum MepError {
     /// in the bundled catalogue today; narrowed rather than guessed at.
     #[error("{0:?} has no 3D solid representation yet")]
     UnsupportedProfile(od_parts::Profile),
+    /// [`crate::autoroute::find_route`] exhausted its search without
+    /// reaching the end point — every path the grid could represent passed
+    /// through an obstacle.
+    #[error("no route between the two points could be found through the given obstacles")]
+    NoRoute,
+    #[error("the route's start point lies inside an obstacle")]
+    StartBlocked,
+    #[error("the route's end point lies inside an obstacle")]
+    EndBlocked,
 }
 
 pub type Result<T> = std::result::Result<T, MepError>;

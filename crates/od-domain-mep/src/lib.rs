@@ -54,6 +54,7 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
+pub mod autoroute;
 pub mod clash;
 pub mod derive;
 pub mod graph;
