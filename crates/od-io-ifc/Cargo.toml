@@ -1,0 +1,17 @@
+[package]
+name = "od-io-ifc"
+description = "Exports IFC4 by shelling out to od-bridge-ifc (Python + IfcOpenShell, LGPL-3.0, process-isolated — see NOTICE). Generic over what an element is; never depends on od-domain-mep or any geometry crate directly."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
