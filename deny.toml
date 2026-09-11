@@ -18,9 +18,10 @@ allow = [
     "Zlib",
     "Unicode-3.0",
     "CC0-1.0",
-    # LGPL is acceptable only through dynamic linking (OCCT, IfcOpenShell).
-    # Neither is a dependency yet; when one is added it must be dynamic, and
-    # that must be stated in NOTICE.
+    # LGPL is acceptable through dynamic linking (OCCT, not a dependency
+    # yet) or through process isolation (IfcOpenShell, via od-bridge-ifc —
+    # its only supported binding is Python, so it is never a Cargo
+    # dependency at all; see NOTICE). Either way must be stated in NOTICE.
 ]
 confidence-threshold = 0.9
 

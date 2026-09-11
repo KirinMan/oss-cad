@@ -80,9 +80,18 @@ pub fn demo(output: &Path, json: bool) -> Result<()> {
 /// single `Command`, and cannot be, without `od-core` learning what a
 /// "system" or a "spec" is (rule 1) — the domain's own vocabulary belongs in
 /// the domain's own entry point.
+/// Where to write an IFC export and how to reach the bridge that does it —
+/// grouped into one struct rather than three more loose parameters on
+/// [`route`], which already has plenty.
+pub struct IfcExportOptions<'a> {
+    pub out: &'a Path,
+    pub bridge: &'a Path,
+    pub python: &'a Path,
+}
+
 #[expect(
     clippy::too_many_arguments,
-    reason = "a route's five inputs, plus the two optional render paths, are all required and none group naturally"
+    reason = "a route's five inputs, plus the three optional render outputs, are all required and none group naturally"
 )]
 pub fn route(
     input: &Path,
@@ -93,6 +102,7 @@ pub fn route(
     path: &str,
     render_svg: Option<&Path>,
     render_3d: Option<&Path>,
+    render_ifc: Option<IfcExportOptions<'_>>,
     json: bool,
 ) -> Result<()> {
     let catalog = Catalog::bundled().context("loading the bundled part catalogue")?;
@@ -140,6 +150,10 @@ pub fn route(
         render_route_solids(&doc, &segment_ids, glb_out)?;
     }
 
+    if let Some(opts) = render_ifc {
+        render_route_ifc(&doc, &catalog, &segment_ids, &opts)?;
+    }
+
     crate::report::mep_route(
         input,
         output,
@@ -184,6 +198,82 @@ fn render_route_solids(
     od_io_gltf::write_file(&meshes, glb_out)
         .with_context(|| format!("writing {}", glb_out.display()))?;
     Ok(())
+}
+
+/// Exports every routed segment as an IFC4 product through `od-bridge-ifc`
+/// (`od-io-ifc`; see that crate's docs for exactly what is and is not
+/// carried across yet — geometry only, flat text properties, one fixed
+/// nominal storey). Fittings are not included, the same reasoning as
+/// [`render_route_solids`]. Sweeps each segment again rather than sharing
+/// `render_route_solids`'s meshes: a deliberate simplification, since
+/// `--render-3d` and `--render-ifc` are independent, optional outputs and a
+/// route drawing's segment count never makes a second sweep pass costly.
+fn render_route_ifc(
+    doc: &Document,
+    catalog: &Catalog,
+    segment_ids: &[od_core::ObjectId],
+    opts: &IfcExportOptions<'_>,
+) -> Result<()> {
+    let mut kernel = od_geom3d_lite::LiteKernel::new();
+    let mut elements = Vec::new();
+    for &id in segment_ids {
+        let seg =
+            store::read_route(&doc.db, id).context("reading back a just-inserted route segment")?;
+        let solid = match derive::route_solid(&seg, &mut kernel) {
+            Ok(solid) => solid,
+            Err(od_domain_mep::model::MepError::UnsupportedProfile(_)) => continue,
+            Err(e) => return Err(e.into()),
+        };
+        use od_geom3d::SolidKernel as _;
+        let mesh_handle = kernel.triangulate(solid, 0.1)?;
+        let mesh = kernel.mesh_data(mesh_handle)?;
+
+        let kind = catalog
+            .system(&seg.system)
+            .map_or(od_parts::SystemKind::Generic, |s| s.kind);
+        let mut properties = std::collections::BTreeMap::new();
+        properties.insert(
+            "Pset_OpenDraftRoute".to_owned(),
+            std::collections::BTreeMap::from([
+                ("System".to_owned(), seg.system.clone()),
+                ("Spec".to_owned(), seg.spec.clone()),
+            ]),
+        );
+        elements.push(od_io_ifc::IfcElement {
+            ifc_class: ifc_class_for(kind).to_owned(),
+            name: id.to_string(),
+            positions: mesh.positions.iter().map(|p| [p.x, p.y, p.z]).collect(),
+            triangles: mesh.indices.as_chunks::<3>().0.to_vec(),
+            properties,
+        });
+    }
+
+    let request = od_io_ifc::IfcExportRequest {
+        project_name: "OpenDraft export".into(),
+        elements,
+    };
+    od_io_ifc::export(&request, opts.python, opts.bridge, opts.out)
+        .with_context(|| format!("writing {}", opts.out.display()))?;
+    Ok(())
+}
+
+/// `RouteSegment` -> IFC entity, by system kind (`docs/05-interop-license.md`
+/// §2.4's own mapping table). `Generic` (supports, sleeves, penetrations)
+/// has no distinct IFC distribution-segment class, so it falls back to
+/// `IfcPipeSegment` rather than inventing one — a narrowing, not a claim
+/// that a support rail is a pipe.
+fn ifc_class_for(kind: od_parts::SystemKind) -> &'static str {
+    use od_parts::SystemKind;
+    match kind {
+        SystemKind::Air => "IfcDuctSegment",
+        SystemKind::Power | SystemKind::Signal => "IfcCableCarrierSegment",
+        SystemKind::Water
+        | SystemKind::Drainage
+        | SystemKind::Hydronic
+        | SystemKind::FireProtection
+        | SystemKind::Gas
+        | SystemKind::Generic => "IfcPipeSegment",
+    }
 }
 
 /// Places one piece of equipment on an existing drawing and saves the

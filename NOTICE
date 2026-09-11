@@ -22,9 +22,17 @@ rationale and the boundary design.
   when enabled, runs as the separate executable `od-bridge-dwg`, distributed as
   its own component under GPL-3.0-or-later, communicating over stdio.
 
-* Open CASCADE Technology (LGPL-2.1 with exception) and IfcOpenShell
-  (LGPL-3.0) are, when enabled, dynamically linked. They are optional
-  dependencies and are not required to build or run the core.
+* Open CASCADE Technology (LGPL-2.1 with exception), when enabled, is
+  dynamically linked. It is an optional dependency and is not required to
+  build or run the core.
+
+* IfcOpenShell (LGPL-3.0) is NOT linked into this product in any form. IFC
+  export, when enabled, runs as the separate program `od-bridge-ifc`
+  (`bridges/od-bridge-ifc`), a standalone Python script distributed as its
+  own component, communicating over stdio -- the same process-boundary
+  isolation as `od-bridge-dwg`, chosen because IfcOpenShell's only
+  supported binding is Python rather than a C library this project could
+  link against directly.
 
 No trademark of Autodesk, Inc. ("AutoCAD", "DWG", "DXF"), Daitec Co., Ltd.
 ("CADWe'll Tfas"), or NYK Systems Inc. ("Rebro") is used to identify this

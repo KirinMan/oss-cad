@@ -955,6 +955,7 @@ dependencies = [
  "od-io-bcf",
  "od-io-dxf",
  "od-io-gltf",
+ "od-io-ifc",
  "od-io-odc",
  "od-io-svg",
  "od-io-sxf",
@@ -1042,6 +1043,15 @@ dependencies = [
  "od-geom3d",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "od-io-ifc"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
