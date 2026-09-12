@@ -146,6 +146,39 @@ export function createApp() {
 
   // ── Drawings ─────────────────────────────────────────────────────────────
 
+  // The one route in this group that takes no upload — every other drawing
+  // endpoint needs an existing file to work on, and this is how a caller
+  // gets a first one at all.
+  app.post('/api/drawings/new', async (c) => {
+    const format = c.req.query('format') ?? 'odc';
+    if (!WRITABLE.includes(format)) {
+      return c.json<ApiError>(
+        {
+          error: 'unsupported format',
+          detail: `format must be one of ${WRITABLE.join(', ')}`,
+        },
+        400,
+      );
+    }
+    const out = `${tmpRoot()}/new-${crypto.randomUUID()}.${format}`;
+    try {
+      await od(z.object({ output: z.string() }), ['new', out]);
+      const bytes = await Bun.file(out).arrayBuffer();
+      return new Response(bytes, {
+        headers: {
+          'content-type': CONTENT_TYPES[format] ?? 'application/octet-stream',
+          'content-disposition': `attachment; filename="untitled.${format}"`,
+        },
+      });
+    } finally {
+      await Bun.file(out)
+        .delete()
+        .catch(() => {
+          /* already gone */
+        });
+    }
+  });
+
   app.post('/api/drawings/inspect', (c) =>
     withUpload(c, async (path) => {
       const report = await od(inspectionSchema, ['inspect', path]);
