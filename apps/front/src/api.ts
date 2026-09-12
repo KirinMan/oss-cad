@@ -531,6 +531,28 @@ export async function saveDrawing(file: File, to: SaveFormat): Promise<SavedDraw
   };
 }
 
+/**
+ * Creates a blank drawing — no entities, no layers beyond the default `0`.
+ * Always `.odc`, the native format: a document created from nothing has no
+ * exchange partner yet, so there is no reason to ask the caller to choose a
+ * lossy format for it up front.
+ */
+export async function newDrawing(): Promise<File> {
+  const res = await fetch('/api/drawings/new', { method: 'POST' });
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as ApiError | null;
+    throw new ApiRequestError(
+      body?.error ?? `creating a new drawing failed with ${res.status}`,
+      res.status,
+      body?.detail,
+    );
+  }
+
+  const blob = await res.blob();
+  return new File([blob], 'untitled.odc', { type: blob.type });
+}
+
 const healthSchema = z.object({
   status: z.enum(['ok', 'degraded']),
   engine: z.object({ binary: z.string(), available: z.boolean() }),

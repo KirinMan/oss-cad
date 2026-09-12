@@ -8,6 +8,7 @@ import {
   fetchSpecs,
   fetchSystems,
   inspectDrawing,
+  newDrawing,
   placeMep,
   queryNear,
   renderDrawingWithViewBox,
@@ -295,6 +296,25 @@ export function EditorPage() {
 
   const open = useMutation({
     mutationFn: async (file: File) => {
+      const { url, viewBox } = await renderDrawingWithViewBox(file);
+      return { file, url, viewBox };
+    },
+    onSuccess: (snap) => {
+      setHistory([]);
+      resetInteraction();
+      setError(null);
+      setCurrent(snap);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  // A blank document is just a File like any other opened one -- creating
+  // it server-side (rather than faking an empty .odc client-side) is what
+  // keeps "what a blank drawing actually contains" a single fact the engine
+  // owns, not something the front-end also has to get right.
+  const createNew = useMutation({
+    mutationFn: async () => {
+      const file = await newDrawing();
       const { url, viewBox } = await renderDrawingWithViewBox(file);
       return { file, url, viewBox };
     },
@@ -1202,6 +1222,14 @@ export function EditorPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-4">
+        <button
+          type="button"
+          onClick={() => createNew.mutate()}
+          disabled={createNew.isPending}
+          className="rounded border border-rule bg-paper-raised px-4 py-2 text-sm transition-colors hover:border-accent disabled:opacity-50"
+        >
+          {createNew.isPending ? '作成中…' : '新規作成'}
+        </button>
         <label className="cursor-pointer rounded border border-rule bg-paper-raised px-4 py-2 text-sm transition-colors hover:border-accent">
           <input
             type="file"
