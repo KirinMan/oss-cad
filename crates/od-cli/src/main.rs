@@ -36,6 +36,20 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Creates a blank drawing — no entities, no layers beyond the default
+    /// `0`, nothing to open first.
+    ///
+    /// Every other command needs an existing file to read; this is the one
+    /// way to get a first file at all, for the same reason a text editor
+    /// needs a "new document" action distinct from "open."
+    New {
+        output: PathBuf,
+        /// Also render the (necessarily empty) result to SVG, so a caller
+        /// gets both in one invocation instead of a second load — matches
+        /// `edit`/`mep route`'s own `--render`.
+        #[arg(long, value_name = "SVG")]
+        render: Option<PathBuf>,
+    },
     /// Convert a drawing between formats.
     ///
     /// `.odc` is the native container and holds the whole document; `.dxf` is
@@ -310,6 +324,7 @@ enum RuleSet {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Command::New { output, render } => new_drawing(&output, render.as_deref(), cli.json),
         Command::Convert {
             input,
             output,
@@ -429,6 +444,29 @@ fn main() -> Result<()> {
             } => mep::autoroute(&input, &path, clearance, cli.json),
         },
     }
+}
+
+fn new_drawing(
+    output: &std::path::Path,
+    render_svg: Option<&std::path::Path>,
+    json: bool,
+) -> Result<()> {
+    let db = od_core::Database::new(od_core::ActorId::SYSTEM);
+    load::save(&db, output)?;
+
+    let rendered = match render_svg {
+        Some(svg_out) => {
+            let (svg, view_box) =
+                od_io_svg::to_svg_with_view_box(&db, &od_io_svg::SvgOptions::default());
+            std::fs::write(svg_out, &svg)
+                .with_context(|| format!("writing {}", svg_out.display()))?;
+            Some((svg_out, view_box))
+        }
+        None => None,
+    };
+
+    report::new_drawing(output, rendered, json);
+    Ok(())
 }
 
 fn convert(

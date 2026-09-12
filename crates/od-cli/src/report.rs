@@ -559,6 +559,34 @@ pub fn render(
     );
 }
 
+pub fn new_drawing(output: &Path, rendered: Option<(&Path, od_io_svg::ViewBox)>, json: bool) {
+    if json {
+        #[derive(Serialize)]
+        struct RenderedInfo {
+            output: String,
+            view_box: [f64; 4],
+        }
+        #[derive(Serialize)]
+        struct Report {
+            output: String,
+            render: Option<RenderedInfo>,
+        }
+        emit(&Report {
+            output: output.display().to_string(),
+            render: rendered.map(|(path, vb)| RenderedInfo {
+                output: path.display().to_string(),
+                view_box: [vb.min_x, vb.min_y, vb.width, vb.height],
+            }),
+        });
+        return;
+    }
+
+    println!("{}", output.display());
+    if let Some((path, _)) = rendered {
+        println!("  rendered → {}", path.display());
+    }
+}
+
 pub fn edit(
     outcome: &od_core::CommandOutcome,
     input: &Path,
