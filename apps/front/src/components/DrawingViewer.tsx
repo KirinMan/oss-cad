@@ -34,6 +34,7 @@ export function DrawingViewer({ file, layers, visibleLayers, dark }: Props) {
   const [view, setView] = useState<View>(HOME);
   const [dragging, setDragging] = useState(false);
   const dragOrigin = useRef<{ x: number; y: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Only a filter change re-renders; panning and zooming do not.
   const filter =
@@ -57,32 +58,45 @@ export function DrawingViewer({ file, layers, visibleLayers, dark }: Props) {
     return () => URL.revokeObjectURL(url);
   }, [url]);
 
-  function onWheel(e: React.WheelEvent) {
-    e.preventDefault();
-    // Zoom towards the cursor, which is what every CAD application does and
-    // what makes zooming feel like moving rather than jumping.
-    const rect = e.currentTarget.getBoundingClientRect();
-    const px = e.clientX - rect.left;
-    const py = e.clientY - rect.top;
-    const factor = Math.exp(-e.deltaY * 0.0015);
+  // A native listener, not React's `onWheel` prop: React attaches wheel
+  // handlers at the root as passive since v17, so `e.preventDefault()`
+  // inside a synthetic handler is silently ignored (and logs a console
+  // warning) — the page behind the viewer scrolls right along with the
+  // zoom. `{ passive: false }` here is what actually stops that.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
 
-    setView((v) => {
-      const scale = Math.min(Math.max(v.scale * factor, 0.05), 200);
-      const actual = scale / v.scale;
-      return {
-        scale,
-        x: px - (px - v.x) * actual,
-        y: py - (py - v.y) * actual,
-      };
-    });
-  }
+    function handleWheel(e: WheelEvent) {
+      e.preventDefault();
+      // Zoom towards the cursor, which is what every CAD application does
+      // and what makes zooming feel like moving rather than jumping.
+      const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      const factor = Math.exp(-e.deltaY * 0.0015);
+
+      setView((v) => {
+        const scale = Math.min(Math.max(v.scale * factor, 0.05), 200);
+        const actual = scale / v.scale;
+        return {
+          scale,
+          x: px - (px - v.x) * actual,
+          y: py - (py - v.y) * actual,
+        };
+      });
+    }
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, []);
 
   return (
     <div className="space-y-2">
       <div
+        ref={containerRef}
         className="relative h-[32rem] overflow-hidden rounded border border-rule bg-paper-raised"
         style={{ cursor: dragging ? 'grabbing' : 'grab', touchAction: 'none' }}
-        onWheel={onWheel}
         onPointerDown={(e) => {
           dragOrigin.current = { x: e.clientX - view.x, y: e.clientY - view.y };
           setDragging(true);
