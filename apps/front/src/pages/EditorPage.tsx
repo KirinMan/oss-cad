@@ -13,6 +13,8 @@ import {
   queryNear,
   renderDrawingWithViewBox,
   routeMep,
+  saveDrawing,
+  type SaveFormat,
 } from '../api.ts';
 
 /**
@@ -397,6 +399,25 @@ export function EditorPage() {
           ? prev.filter((p) => p.id !== hit.id)
           : [...prev, hit];
       });
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  // Same download pattern DrawingPage's own save button already uses:
+  // the drawing never leaves the browser except for the round trip a save
+  // or an edit needs, and the bytes handed to the anchor are exactly what
+  // the engine wrote, not something reconstructed from editor state.
+  const save = useMutation({
+    mutationFn: async (to: SaveFormat) => {
+      if (!current) throw new Error('先に図面を開いてください');
+      const saved = await saveDrawing(current.file, to);
+      const url = URL.createObjectURL(saved.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = saved.filename;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return saved;
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -1602,6 +1623,23 @@ export function EditorPage() {
                 <option value="15">15°</option>
               </select>
             )}
+
+            <button
+              type="button"
+              disabled={save.isPending}
+              onClick={() => save.mutate('odc')}
+              className="rounded bg-accent px-2 py-1 text-paper-raised disabled:opacity-50"
+            >
+              .odc で保存
+            </button>
+            <button
+              type="button"
+              disabled={save.isPending}
+              onClick={() => save.mutate('dxf')}
+              className="rounded border border-rule px-2 py-1 text-ink disabled:opacity-50"
+            >
+              DXF で書き出し
+            </button>
 
             <button
               type="button"
