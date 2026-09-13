@@ -146,6 +146,46 @@ describe.if(hasEngine)('drawings', () => {
     return form;
   }
 
+  test('creates a blank .odc drawing with no upload', async () => {
+    const res = await app.request('/api/drawings/new', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe(
+      'application/vnd.opendraft.document+zip',
+    );
+    expect(res.headers.get('content-disposition')).toContain('untitled.odc');
+    const bytes = await res.arrayBuffer();
+    expect(bytes.byteLength).toBeGreaterThan(0);
+
+    // The bytes are a real, openable document, not just a non-empty blob --
+    // round-trip it through /api/drawings/inspect the same way a caller
+    // would immediately do after creating one.
+    const form = new FormData();
+    form.set('file', new File([bytes], 'untitled.odc'));
+    const inspected = await app.request('/api/drawings/inspect', {
+      method: 'POST',
+      body: form,
+    });
+    expect(inspected.status).toBe(200);
+    const body = (await inspected.json()) as { entities: number; layer_names: string[] };
+    expect(body.entities).toBe(0);
+    expect(body.layer_names).toEqual(['0']);
+  });
+
+  test('creates a blank drawing in a requested format', async () => {
+    const res = await app.request('/api/drawings/new?format=dxf', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/dxf');
+    const text = await res.text();
+    expect(text).toContain('SECTION');
+  });
+
+  test('rejects an unwritable format for a new drawing', async () => {
+    const res = await app.request('/api/drawings/new?format=xyz', { method: 'POST' });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('unsupported format');
+  });
+
   test('inspects an uploaded drawing', async () => {
     const res = await app.request('/api/drawings/inspect', {
       method: 'POST',
