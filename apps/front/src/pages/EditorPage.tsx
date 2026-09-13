@@ -240,7 +240,23 @@ export function EditorPage() {
   // it is fully derived from props/query data with nothing external to
   // subscribe to.
   const effectiveSystem = mepSystem || (systemsQuery.data?.[0]?.id ?? '');
-  const effectiveSpec = mepSpec || (specsQuery.data?.[0]?.id ?? '');
+  // A spec is only offered if its system_kind matches the selected system's
+  // kind (both share SystemKind) -- routing 排気 air through a 薄鋼電線管
+  // conduit spec parses and draws just fine, but it is not a duct or pipe
+  // anyone could actually order, the exact mistake this list exists to
+  // catch before it reaches a routed drawing. Falls back to the first
+  // compatible spec whenever the current pick isn't one -- including right
+  // after the system changes out from under it.
+  const currentSystemKind = systemsQuery.data?.find(
+    (s) => s.id === effectiveSystem,
+  )?.kind;
+  const compatibleSpecs = (specsQuery.data ?? []).filter(
+    (s) => !currentSystemKind || s.system_kind === currentSystemKind,
+  );
+  const effectiveSpec =
+    (mepSpec && compatibleSpecs.some((s) => s.id === mepSpec) ? mepSpec : undefined) ??
+    compatibleSpecs[0]?.id ??
+    '';
 
   // ── MEP equipment placement ───────────────────────────────────────────
   // Shares `effectiveSystem` with routing above — a fan placed on 給気
@@ -1742,7 +1758,7 @@ export function EditorPage() {
                   onChange={(e) => setMepSpec(e.target.value)}
                   className="rounded border border-rule bg-paper px-2 py-1"
                 >
-                  {(specsQuery.data ?? []).map((s) => (
+                  {compatibleSpecs.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name.ja}
                     </option>
