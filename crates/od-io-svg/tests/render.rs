@@ -49,6 +49,28 @@ fn an_empty_drawing_still_produces_a_valid_document() {
     assert!(svg.contains("viewBox="));
 }
 
+/// A blank drawing (a just-created document, before its first entity) needs
+/// a `viewBox` roughly at building scale, not paper scale -- an editing
+/// canvas turns a click on the image back into a drawing coordinate through
+/// this box (see `ViewBox`'s own doc comment), so a too-small fallback here
+/// makes drawing anything on a brand-new document nearly impossible: every
+/// click lands within a few millimetres of the last one, regardless of how
+/// far the canvas visually appears to span.
+#[test]
+fn an_empty_drawings_view_box_is_building_scale_and_centred_on_the_origin() {
+    let (_, view_box) = to_svg_with_view_box(&Database::default(), &SvgOptions::default());
+    assert!(
+        view_box.width >= 10_000.0 && view_box.height >= 10_000.0,
+        "a blank drawing's starting view must span at least one typical room, not one sheet of paper: {view_box:?}"
+    );
+    let center_x = view_box.min_x + view_box.width / 2.0;
+    let center_y = view_box.min_y + view_box.height / 2.0;
+    assert!(
+        center_x.abs() < 1.0 && center_y.abs() < 1.0,
+        "the origin should sit at the middle of a blank drawing's view, not a corner: {view_box:?}"
+    );
+}
+
 #[test]
 fn every_entity_becomes_an_element() {
     let db = drawing_with(vec![
