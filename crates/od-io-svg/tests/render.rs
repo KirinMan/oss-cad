@@ -242,6 +242,37 @@ fn a_transparent_background_paints_no_ground() {
 }
 
 #[test]
+fn the_background_rect_is_sized_to_the_view_box_not_a_universal_rect() {
+    // A single, nearly flat line produces an extreme aspect ratio — exactly
+    // the shape that made Chromium's SVG rasteriser paint only a sliver of a
+    // rect running from -1e9 to 1e9 instead of the whole viewport, so the
+    // "paper" behind a lone dimension or text label disappeared.
+    let db = drawing_with(vec![("M-TEST", line(0.0, 0.0, 5000.0, 0.0))]);
+    let (svg, view_box) = to_svg_with_view_box(
+        &db,
+        &SvgOptions::default().with_background(Background::Paper),
+    );
+
+    let rect_attrs = svg
+        .split("<rect ")
+        .nth(1)
+        .and_then(|s| s.split('/').next())
+        .expect("a background rect");
+    let attr = |name: &str| -> f64 {
+        rect_attrs
+            .split(&format!(r#"{name}=""#))
+            .nth(1)
+            .and_then(|s| s.split('"').next())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_else(|| panic!("rect has no {name}"))
+    };
+    assert!(od_core::tol::eq_len(attr("x"), view_box.min_x));
+    assert!(od_core::tol::eq_len(attr("y"), view_box.min_y));
+    assert!(od_core::tol::eq_len(attr("width"), view_box.width));
+    assert!(od_core::tol::eq_len(attr("height"), view_box.height));
+}
+
+#[test]
 fn a_block_reference_is_expanded_where_it_is_placed() {
     let mut db = Database::new(ActorId::SYSTEM);
     let layer = db.ensure_layer("M-EQUIP");

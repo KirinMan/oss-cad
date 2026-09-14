@@ -143,9 +143,22 @@ fn write_open(out: &mut String, extents: &Aabb3, options: &SvgOptions) -> ViewBo
     let _ = writeln!(out, r#" fill="none">"#);
 
     if let Some(colour) = options.background.fill() {
+        // Sized to the viewBox itself, not a "cover everything" rect: at the
+        // extreme aspect ratios a single line or a short text label produces
+        // (a viewBox a few units tall and thousands wide), a rect running
+        // from -1e9 to 1e9 sits far enough outside the visible area that
+        // Chromium's SVG rasteriser has been observed to paint only a sliver
+        // of it instead of the whole viewport — found by placing a single
+        // dimension in the editor and watching the "paper" disappear behind
+        // the drawing. The viewBox bounds are provably enough: nothing
+        // outside them is ever visible.
         let _ = writeln!(
             out,
-            r#"<rect x="-1e9" y="-1e9" width="2e9" height="2e9" fill="{colour}"/>"#
+            r#"<rect x="{}" y="{}" width="{}" height="{}" fill="{colour}"/>"#,
+            n(view_box.min_x),
+            n(view_box.min_y),
+            n(view_box.width),
+            n(view_box.height)
         );
     }
 
