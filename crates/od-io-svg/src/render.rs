@@ -80,9 +80,24 @@ struct Ctx<'a> {
     min_stroke: f64,
 }
 
+/// A blank drawing's fallback `viewBox` size, in millimetres — roughly one
+/// floor of a small building (20m square), centred on the origin so a click
+/// near the middle of a freshly created drawing lands near `(0, 0)` rather
+/// than at a corner. Not just a rendering nicety: an editing canvas turns a
+/// click on the image back into a drawing coordinate through this
+/// `ViewBox` (see its doc comment), so a too-small fallback here means
+/// every click on a brand-new drawing lands within a few centimetres of
+/// where it started, regardless of how far the canvas visually appears to
+/// span. 100mm — office-drawer-drawing-paper-sized, not building-sized —
+/// was the previous value and made a freshly created drawing nearly
+/// unusable to draw on before anything else had been added to give the
+/// extents a real size.
+const EMPTY_DRAWING_SIZE_MM: f64 = 20_000.0;
+
 fn write_open(out: &mut String, extents: &Aabb3, options: &SvgOptions) -> ViewBox {
     let (w, h, min_x, max_y) = if extents.is_empty() {
-        (100.0, 100.0, 0.0, 100.0)
+        let half = EMPTY_DRAWING_SIZE_MM / 2.0;
+        (EMPTY_DRAWING_SIZE_MM, EMPTY_DRAWING_SIZE_MM, -half, half)
     } else {
         let size = extents.size();
         // A drawing that is a single straight line has no height; give it one
