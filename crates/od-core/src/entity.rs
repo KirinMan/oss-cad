@@ -457,8 +457,18 @@ impl Geometry {
                 // The convex hull of the control points contains the curve.
                 Aabb3::from_points(control_points.iter().copied())
             }
-            Geometry::Text(t) => Aabb3::from_points([t.position]),
-            Geometry::MText(t) => Aabb3::from_points([t.position]),
+            Geometry::Text(t) => {
+                text_local_bounds(t.position, &t.value, t.height, t.rotation, t.width_factor)
+            }
+            // `MTextEntity` has no `width_factor`; its `width` is a wrap
+            // column, not a glyph scale, and wrapping/paragraph layout isn't
+            // modelled anywhere in this crate yet, so the box below treats
+            // the whole value as one line. That over-estimates the width of
+            // text that would in fact wrap, which is the safe direction to
+            // be wrong in.
+            Geometry::MText(t) => {
+                text_local_bounds(t.position, &t.value, t.height, t.rotation, 1.0)
+            }
             Geometry::Dimension(d) => {
                 let (line_a, line_b) = d.dimension_line();
                 Aabb3::from_points([d.point_a, d.point_b, line_a, line_b])
@@ -613,6 +623,55 @@ impl Geometry {
             _ => Vec::new(),
         }
     }
+}
+
+/// A world-space box around rendered text, baseline-anchored at `position`
+/// and extending in the direction `rotation` turns "right" from the X axis.
+///
+/// No font-shaping engine lives in this crate — the SVG renderer defers
+/// glyph layout to the browser, so no exact advance width is ever knowable
+/// here. `GLYPH_WIDTH_EM` treats every character as a full em wide: too wide
+/// for most Latin text, but not for CJK glyphs, which render close to
+/// square. An under-sized box is what corrupts the spatial index and starves
+/// a text-only drawing's view of scale (the fallback this guards is
+/// `od_io_svg`'s `EMPTY_DRAWING_SIZE_MM`); an over-sized one only wastes a
+/// little query fan-out, which is the direction it's safe to be wrong in.
+fn text_local_bounds(
+    position: Point3,
+    value: &str,
+    height: f64,
+    rotation: f64,
+    width_factor: f64,
+) -> Aabb3 {
+    const GLYPH_WIDTH_EM: f64 = 1.0;
+    const ASCENT_EM: f64 = 1.0;
+    const DESCENT_EM: f64 = 0.3;
+
+    let chars = value.chars().count();
+    if chars == 0 || height <= 0.0 {
+        return Aabb3::from_points([position]);
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "chars is a character count; f64 is exact well past any real label"
+    )]
+    let width = chars as f64 * height * width_factor.max(0.0) * GLYPH_WIDTH_EM;
+    let base = Point2::new(position.x, position.y);
+    let corners = [
+        od_geom2d::Vec2::new(0.0, -height * DESCENT_EM),
+        od_geom2d::Vec2::new(width, -height * DESCENT_EM),
+        od_geom2d::Vec2::new(width, height * ASCENT_EM),
+        od_geom2d::Vec2::new(0.0, height * ASCENT_EM),
+    ]
+    .map(|v| base + v.rotated(rotation));
+    let min_x = corners.iter().fold(f64::INFINITY, |m, c| m.min(c.x));
+    let max_x = corners.iter().fold(f64::NEG_INFINITY, |m, c| m.max(c.x));
+    let min_y = corners.iter().fold(f64::INFINITY, |m, c| m.min(c.y));
+    let max_y = corners.iter().fold(f64::NEG_INFINITY, |m, c| m.max(c.y));
+    Aabb3::new(
+        Point3::new(min_x, min_y, position.z),
+        Point3::new(max_x, max_y, position.z),
+    )
 }
 
 #[cfg(test)]
@@ -773,5 +832,47 @@ mod tests {
             closed: false,
         };
         assert!(g.local_bounds().is_empty());
+    }
+
+    #[test]
+    fn text_bounds_scale_with_height_and_length_not_a_single_point() {
+        let g = Geometry::Text(Box::new(TextEntity {
+            position: Point3::ORIGIN,
+            value: "TEST-LABEL".into(),
+            height: 250.0,
+            rotation: 0.0,
+            style: id(1),
+            flow: TextFlow::default(),
+            h_align: HAlign::default(),
+            v_align: VAlign::default(),
+            width_factor: 1.0,
+            oblique: 0.0,
+        }));
+        let b = g.local_bounds();
+        // 10 characters at 250mm tall: a box hundreds of mm on a side, not
+        // the degenerate single point the old bounds returned — that point
+        // is what made a text-only drawing's view collapse to nothing.
+        assert!(b.max.x - b.min.x > 1000.0);
+        assert!(b.max.y - b.min.y > 100.0);
+    }
+
+    #[test]
+    fn rotated_text_bounds_grow_tall_not_wide() {
+        let g = Geometry::Text(Box::new(TextEntity {
+            position: Point3::ORIGIN,
+            value: "TEST-LABEL".into(),
+            height: 250.0,
+            rotation: std::f64::consts::FRAC_PI_2,
+            style: id(1),
+            flow: TextFlow::default(),
+            h_align: HAlign::default(),
+            v_align: VAlign::default(),
+            width_factor: 1.0,
+            oblique: 0.0,
+        }));
+        let b = g.local_bounds();
+        // Rotated a quarter turn, the run of characters extends along Y,
+        // not X — a box that ignored rotation would get this backwards.
+        assert!(b.max.y - b.min.y > b.max.x - b.min.x);
     }
 }
